@@ -20,6 +20,7 @@
     "lint": "eslint --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint --fix",
     "test": "vitest",
+    "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage"
   },
   "devDependencies": {

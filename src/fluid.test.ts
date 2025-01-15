@@ -116,29 +116,40 @@ describe("Fluid", () => {
       Fluid.write(_x_, 20)
       expect(fn).toHaveBeenCalledWith(40)
     })
+
+    it("stops emmiting effects once the return function is fired", () => {
+      const _x_ = Fluid.val(10)
+      const fn = vi.fn()
+
+      const stop = Fluid.listen(_x_, fn)
+
+      Fluid.write(_x_, 20)
+      expect(fn).toBeCalledWith(20)
+      Fluid.write(_x_, 40)
+      expect(fn).toBeCalledWith(40)
+
+      fn.mockClear()
+      stop()
+
+      Fluid.write(_x_, 40)
+      expect(fn).not.toHaveBeenCalled()
+    })
   })
 
-  test("bunch", () => {
-    const _x_ = Fluid.val("x")
-    const _y_ = Fluid.val("y")
+  describe("write", () => {
+    it("can take a function as a new value creator", () => {
+      const _x_ = Fluid.val(10)
+      Fluid.write(_x_, x => x * 2)
 
-    const _a_ = Fluid.derive([_x_, _y_], (x, y) => "a(" + x + y + ")")
-    const _b_ = Fluid.derive([_x_, _y_], (x, y) => "b(" + x + y + ")")
+      expect(Fluid.read(_x_)).toBe(20)
+    })
+    it("does not treat a function as a new value creator if literalFn passed", () => {
+      const _lazyX_ = Fluid.val(() => 10)
+      const x20 = () => 20
+      Fluid.write(_lazyX_, x20, { literateFn: true })
 
-    let answer
-    Fluid.listen(
-      Fluid.derive([_a_, _b_], (a, b) => [a, b]),
-      ([a, b]) => answer = a + ", " + b,
-      { immidiate: true },
-    )
-
-    expect(answer).toBe("a(xy), b(xy)")
-    expect(Fluid.read(_a_)).toBe("a(xy)")
-
-    Fluid.write(_x_, "[x]")
-
-    expect(answer).toBe("a([x]y), b([x]y)")
-    expect(Fluid.read(_a_)).toBe("a([x]y)")
+      expect(Fluid.read(_lazyX_)).toBe(x20)
+    })
   })
 
   describe("Priority of reaction", () => {
@@ -191,6 +202,33 @@ describe("Fluid", () => {
       expect(Fluid.read(_c_)).toBe("AB")
     })
   })
+
+  //////////////
+  // Specific case tests
+
+  test("bunch", () => {
+    const _x_ = Fluid.val("x")
+    const _y_ = Fluid.val("y")
+
+    const _a_ = Fluid.derive([_x_, _y_], (x, y) => "a(" + x + y + ")")
+    const _b_ = Fluid.derive([_x_, _y_], (x, y) => "b(" + x + y + ")")
+
+    let answer
+    Fluid.listen(
+      Fluid.derive([_a_, _b_], (a, b) => [a, b]),
+      ([a, b]) => answer = a + ", " + b,
+      { immidiate: true },
+    )
+
+    expect(answer).toBe("a(xy), b(xy)")
+    expect(Fluid.read(_a_)).toBe("a(xy)")
+
+    Fluid.write(_x_, "[x]")
+
+    expect(answer).toBe("a([x]y), b([x]y)")
+    expect(Fluid.read(_a_)).toBe("a([x]y)")
+  })
+
 
   test("Dynamic dependencies", () => {
     /**

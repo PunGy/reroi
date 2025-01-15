@@ -39,8 +39,10 @@ print name // George
 
 How does the `Fluid` implements it? As natural to general-purpose language like JavaScript as it can be.
 
-It does treats reactive values as Algebraic Data Types, means there is a type `Reactive<A>`, 
+It does treats reactive values as Algebraic Data Types, means there is a type `Reactive<A>`,
 which splits to `ReactiveValue<A> | ReactiveDerivation<A>`.
+In further text the meaning of *reactive entity* would refer to `Reactive<A>`.
+Otherwise some clarification would be applied, rather it `derive` or a `value`.
 
 So, in order to replicate the reactive system from an example, we need to write this code:
 
@@ -83,9 +85,9 @@ console.log(await promise_a) // 10
 console.log(Fluid.read(reactive_a)) // 10
 ```
 
-Due to some nuances how promises work it is absolutely the same, but the concept is indeed the same.
+The concept here is the same.
 
-You can even write you own `then`, which is normally called `map`.
+You can even make your own `then`, which is normally called `map`.
 
 ```typescript
 const reactive_a: Reactive<number> = Fluid.val(10)
@@ -100,7 +102,7 @@ function map<A, B>(_a_: Reactive<A>, fn: (a: A) => B): ReactiveValue<B> {
 const reactive_b: Reactive<number> = map(reactive_a, a => a + 1)
 ```
 
-It is misleadingly similar to `Fluid.derive`, but it is fundamentally different.
+It's misleadingly similar to `Fluid.derive`, but that is fundamentally a different thing.
 `map` here creates a new `Fluid.val` using value of the existing one. Without ANY subscriptions applied.
 
 That is the key feature of `Fluid` -
@@ -118,4 +120,108 @@ In `Fluid` nothing happend **implicitely**.
 ### Fluid.val
 
 Creates a reactive value. You can read it with `Fluid.read`, or write to it using `Fluid.write`.
+Nothing much special.
+
+### Fluid.derive
+
+Creates a derived from some other reactive value or even derivation.
+
+The signature is:
+
+```typescript
+function derive<A, B>(
+    dependencies: Array<Reactive<A>> | Reactive<A>,
+    computeFn: (...dependencies: Array<A>) => B,
+    options?: { priority?: Priority },
+): ReactiveDerivation<B>;
+```
+
+Where:
+
+- `dependencies`: list or a single reactive entity the `derive` is depended from.
+- `computeFn`: a function which takes a spreaded list of values from dependencies, and returns the value for a derivation.
+- `options`: list of options
+    - `priority`: the priority of update. See in [Fluid.priorities]
+
+The `derivation` is lazy and cached, it means that even if the dependency was updated,
+it would not be recomputed immidiatelly, but on *demand.
+
+```typescript
+const _cost_ = Fluid.val(200)
+const _discounted_ = Fluid.derive(_cost_, cost => cost * 0.85) // 15% discount
+
+console.log(Fluid.read(_discounted_)) // 170, computed
+console.log(Fluid.read(_discounted_)) // 170, cached
+
+Fluid.write(_cost_, 100)
+Fluid.write(_cost_, 500)
+
+// 85 was ignored since not readed
+console.log(Fluid.read(_discounted_)) // 425, computed
+```
+
+> *if the derive is on the list of dependencies for the Fluid.listen,
+it would be recomputed once the listener is about to execute.
+
+### Fluid.listen
+
+Similar interface to `derive`, but rather than create a new entity,
+it listen to changes of dependencies, and execute the `effect` once they got an update.
+
+Returns a function needs to be called in order to stop the listener.
+
+```typescript
+function listen<A>(
+    dependencies: Array<Reactive<A>> | Reactive<A>,
+    effect: (...dependencies: Array<A>) => void,
+    options?: { priority?: Priority, immidiate?: boolean  },
+)
+```
+
+- `dependencies`: list or a single reactive entity on update of which the `effect` emit's on.
+- `effect`: a side-effect function.
+- `options`: list of options.
+    - `priority`: the priority of execution. Default is `Fluid.priorities.base`. See in [Fluid.priorities]
+    - `immidiate`: run an `effect` just right now. Default is `false`,
+    means the first time an `effect` is executed is after some change of dependencies.
+
+### Fluid.read
+
+Basic operation of read. Can take any reactive entity.
+
+```typescript
+function read<A>(_reactive_: Reactive<A>): A;
+```
+
+### Fluid.write
+
+Operation for writing a new value to `ReactiveValue`.
+Sends the message to all dependencies to update themself.
+
+Can take a new value as a parameter, or a value generator function.
+
+```typescript
+function write<A, B>(
+    _val_: ReactiveValue<A>,
+    newVal: B | (current: A) => B,
+    options?: { 
+        literateFn?: boolean // if true - treat newVal function as literate value
+    }
+): ReactiveValue<B>;
+```
+
+The return `ReactiveValue<B>` is not a new object.
+Just the same *\_val\_* you passed as a first parameter.
+
+`Fluid.write` has no any kind of memoisation, and even if you write the same value
+over and over - it would always cause a message spread to dependencies:
+
+```typescript
+const _x_ = Fluid.val(5)
+Fluid.listen(_x_, x => console.log(`I'm on ${x}`))
+
+Fluid.write(_x_, 10) // I'm on 10
+Fluid.write(_x_, 10) // I'm on 10
+Fluid.write(_x_, 10) // I'm on 10
+```
 

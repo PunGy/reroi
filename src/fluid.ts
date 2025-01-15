@@ -209,14 +209,30 @@ const read = <V>(_reactive_: Reactive<V>): V => {
  * Does not used any kind of memoization or comparations
  * - always writes a new value and notifies dependencies about change
  */
-const write = <A, B>(_value_: ReactiveValue<A>, newValue: B | ((aVal: A) => B)): ReactiveValue<B> => {
+function write<A, B>(
+  _value_: ReactiveValue<A>,
+  newValue: B,
+  props: { literateFn: true },
+): ReactiveValue<B>;
+function write<A, B>(
+  _value_: ReactiveValue<A>,
+  newValue: B | ((aVal: A) => B),
+  props?: { literateFn?: boolean },
+): ReactiveValue<B>;
+function write<A, B>(
+  _value_: ReactiveValue<A>,
+  newValue: B | ((aVal: A) => B),
+  props?: { literateFn?: boolean },
+): ReactiveValue<B> {
   if (_value_.__tag !== _rVal) {
     throw new Error("Fluid: You can write only to ReactiveValue created with Fluid.val!!!")
   }
 
-  (_value_ as _ReactiveValue<B>).value = typeof newValue === "function"
-    ? (newValue as ((aVal: A) => B))(read(_value_))
-    : newValue
+  (_value_ as _ReactiveValue<B>).value = props?.literateFn
+    ? newValue as B
+    : typeof newValue === "function"
+      ? (newValue as ((aVal: A) => B))(read(_value_))
+      : newValue
   notify((_value_ as _ReactiveValue<B>).dependencies)
   return _value_
 }
