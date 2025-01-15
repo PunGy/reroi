@@ -155,6 +155,7 @@ interface _ReactiveValue<V> extends ReactiveValue<V> {
 
 interface _ReactiveDerivation<V> extends ReactiveDerivation<V> {
   _invalidate(): void;
+  _destroy(): void;
   _cache: (typeof nullCache) | V;
   priority: Priority;
   dependencies: PriorityPool;
@@ -220,6 +221,15 @@ const write = <A, B>(_value_: ReactiveValue<A>, newValue: B | ((aVal: A) => B)):
   return _value_
 }
 
+/**
+  * Destroy the derivation.
+  * It is not destroyed literally,
+  * but it would be unsubscribed from all entities it listen to.
+  */
+const destroy = (_derive_: ReactiveDerivation<unknown>) => {
+  (_derive_ as _ReactiveDerivation<unknown>)._destroy()
+}
+
 ///////////////////////
 // Reactive Structures
 ///////////////////////
@@ -267,6 +277,11 @@ function derive<V, V2>(
     _invalidate() {
       this._cache = nullCache
       notify(this.dependencies)
+    },
+    _destroy() {
+      sources.forEach(source => {
+        source.dependencies.get(this.priority)!.delete(this)
+      })
     },
     _cache: nullCache,
     priority: props?.priority ?? priorities.base,
@@ -346,6 +361,7 @@ function listen<V>(
 export const Fluid = {
   val,
   derive,
+  destroy,
   read,
   write,
   listen,
