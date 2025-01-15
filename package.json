@@ -1,0 +1,42 @@
+{
+  "name": "fluid",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "module": "./dist/fluid.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js"
+    },
+    "./dist/": {
+      "import": "./dist/"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "vite",
+    "build": "rimraf --glob build/**/* && tsc && vite build && dts-bundle-generator --config ./dts-bundle-generator.config.json && copyfiles ./package.json build",
+    "preview": "vite preview",
+    "lint": "eslint --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint --fix",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.2.0",
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.6",
+    "@typescript-eslint/eslint-plugin": "^8.19.1",
+    "@typescript-eslint/parser": "^8.19.1",
+    "@vitest/coverage-v8": "^2.1.8",
+    "copyfiles": "^2.4.1",
+    "dts-bundle-generator": "^9.5.1",
+    "eslint": "^9.17.0",
+    "globals": "^15.14.0",
+    "rimraf": "^6.0.1",
+    "typescript": "~5.6.2",
+    "typescript-eslint": "^8.19.1",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}
