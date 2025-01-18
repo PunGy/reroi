@@ -15,7 +15,11 @@ type NonEmptyArray<V> = { [0]: V } & Array<V>
 const _rVal = Symbol("r_val")
 const _rDerive = Symbol("r_derive")
 
-type Message = () => void;
+enum NotificationType {
+  UPDATE,
+  SOURCE_DESTROYED,
+}
+type Message = (from: _Reactive, type: NotificationType) => void;
 
 const plowest = Symbol("lowest")
 const phighest = Symbol("highest")
@@ -154,7 +158,6 @@ interface _ReactiveValue<V> extends ReactiveValue<V> {
 }
 
 interface _ReactiveDerivation<V> extends ReactiveDerivation<V> {
-  _invalidate(): void;
   _destroy(): void;
   _cache: (typeof nullCache) | V;
   priority: Priority;
@@ -177,10 +180,10 @@ function isDerive<V>(_value_: Reactive<V> | any): _value_ is _ReactiveDerivation
   return typeof _value_ === "object" && _value_ !== null && "__tag" in _value_ && _value_.__tag === _rDerive
 }
 
-const notify = (dependencies: PriorityPool) => {
-  dependencies.forEach((pool) => {
+const notifyDeps = (_r_: _Reactive, type: NotificationType) => {
+  _r_.dependencies.forEach((pool) => {
     pool.forEach(message => {
-      message()
+      message(_r_, type)
     })
   })
 }
@@ -233,7 +236,7 @@ function write<A, B>(
     : typeof newValue === "function"
       ? (newValue as ((aVal: A) => B))(read(_value_))
       : newValue
-  notify((_value_ as _ReactiveValue<B>).dependencies)
+  notifyDeps((_value_ as _ReactiveValue<B>), NotificationType.UPDATE)
   return _value_
 }
 
@@ -285,19 +288,33 @@ function derive<V, V2>(
   props?: DeriveProps,
 ): ReactiveDerivation<V2> {
   const sources = Array.isArray(_v_)
-    ? _v_ as NonEmptyArray<_Reactive<V>>
-    : [_v_] as NonEmptyArray<_Reactive<V>>
+    ? new Set(_v_) as Set<_Reactive<V>>
+    : new Set([_v_]) as Set<_Reactive<V>>
+
+  /**
+   * Creates update function for getting
+   * a new state of derive
+   */
+  const mkApplier = () => {
+    if (sources.size === 1) {
+      const _r_ = sources.values().next().value!
+      return () => fn(read(_r_))
+    }
+    const _list_ = Array.from(sources.values())
+    return () => (
+      (fn as ((...values: any[]) => V2))(..._list_.map(_reactive_ => read(_reactive_)))
+    )
+  }
+  let applyFn = mkApplier()
 
   const derived: _ReactiveDerivation<V2> = {
     __tag: _rDerive,
-    _invalidate() {
-      this._cache = nullCache
-      notify(this.dependencies)
-    },
     _destroy() {
       sources.forEach(source => {
         source.dependencies.get(this.priority)!.delete(this)
       })
+      sources.clear()
+      notifyDeps(this, NotificationType.SOURCE_DESTROYED)
     },
     _cache: nullCache,
     priority: props?.priority ?? priorities.base,
@@ -307,18 +324,37 @@ function derive<V, V2>(
         return this._cache
       }
 
-      const result = sources.length > 1
-        ? (fn as ((...values: any[]) => V2))(...sources.map(_reactive_ => read(_reactive_)))
-        : fn(read(sources[0]))
+      const result = applyFn()
+      this._cache = result
 
-      this._cache = result as V2
       return result
     },
   }
 
+  function invalidate() {
+    derived._cache = nullCache
+    notifyDeps(derived, NotificationType.UPDATE)
+  }
+  function sourceDestroyed(source: _Reactive) {
+    sources.delete(source as _Reactive<V>)
+    if (sources.size === 0) {
+      derived._destroy()
+    } else {
+      applyFn = mkApplier()
+    }
+  }
+
+  const onMessage = (source: _Reactive, type: NotificationType) => {
+    if (type === NotificationType.UPDATE) {
+      invalidate()
+    } else {
+      sourceDestroyed(source)
+    }
+  }
+
   sources.forEach(source => {
     const pool = source.dependencies.getOrMake(derived.priority)
-    pool.set(derived, derived._invalidate.bind(derived))
+    pool.set(derived, onMessage)
   })
 
   return derived
@@ -344,27 +380,56 @@ function listen<Vs extends NonEmptyArray<any>>(
   props?: ListenProps,
 ): Unsub
 function listen<V>(
-  _reactive_: Reactive<V> | NonEmptyArray<Reactive<any>>,
+  _v_: Reactive<V> | NonEmptyArray<Reactive<any>>,
   fn: ((value: V) => void) | ((...values: any[]) => void),
   props?: ListenProps,
 ): Unsub {
-  const sources = Array.isArray(_reactive_)
-    ? _reactive_ as NonEmptyArray<_Reactive<V>>
-    : [_reactive_] as NonEmptyArray<_Reactive<V>>
+  const sources = Array.isArray(_v_)
+    ? new Set(_v_) as Set<_Reactive<V>>
+    : new Set([_v_]) as Set<_Reactive<V>>
 
+  const priority = props?.priority ?? priorities.base
   function unsub() {
-    sources.forEach( source => {
-      const pool = source.dependencies.getOrMake(props?.priority ?? priorities.base)
+    sources.forEach(source => {
+      const pool = source.dependencies.getOrMake(priority)
       pool.delete(unsub)
     })
+    sources.clear()
   }
-  const react = () => sources.length > 1
-    ? (fn as (...values: any[]) => void)(...sources.map(source => read(source)))
-    : fn(read(sources[0]))
+
+  /**
+   * Creates update function for getting
+   * a new state of derive
+   */
+  const mkApplier = () => {
+    if (sources.size === 1) {
+      const _r_ = sources.values().next().value!
+      return () => fn(read(_r_))
+    }
+    const _list_ = Array.from(sources.values())
+    return () => (
+      (fn as ((...values: any[]) => void))(..._list_.map(_reactive_ => read(_reactive_)))
+    )
+  }
+  let react = mkApplier()
+
+  function sourceDestroyed(source: _Reactive) {
+    sources.delete(source as _Reactive<V>)
+    if (sources.size > 0) {
+      react = mkApplier()
+    }
+  }
+  const onMessage = (source: _Reactive, type: NotificationType) => {
+    if (type === NotificationType.UPDATE) {
+      react()
+    } else {
+      sourceDestroyed(source)
+    }
+  }
 
   sources.forEach(source => {
     const pool = source.dependencies.getOrMake(props?.priority ?? priorities.base)
-    pool.set(unsub, react)
+    pool.set(unsub, onMessage)
   })
 
   if (props?.immidiate) {

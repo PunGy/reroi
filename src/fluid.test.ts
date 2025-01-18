@@ -52,7 +52,7 @@ describe("Fluid", () => {
       expect(calculation).toHaveBeenCalledTimes(2)
     })
 
-    it("can have more than one dependency via currying", () => {
+    it("can have more than one dependency", () => {
       const _name_ = Fluid.val("Max")
       const _surname_ = Fluid.val("Yakovlev")
       const _fullName_ = Fluid.derive([_name_, _surname_], (name, surname) => `${name} ${surname}`)
@@ -136,6 +136,58 @@ describe("Fluid", () => {
     })
   })
 
+  describe("destroy", () => {
+    it("destroyes derivation and stops clears subscription", () => {
+      const _x_ = Fluid.val(10)
+      const _x2_ = Fluid.derive(_x_, x => x * 2)
+      const _y_ = Fluid.val(20)
+
+      const _coordinates_ = Fluid.derive([_x2_, _y_], (x, y) => `[x: ${x}, y: ${y}]`)
+
+      expect(Fluid.read(_coordinates_)).toBe("[x: 20, y: 20]")
+
+      Fluid.destroy(_x2_)
+
+      Fluid.write(_x_, 50)
+
+      // wasn't changed, because _coordinates_ no more listen _x2_
+      expect(Fluid.read(_coordinates_)).toBe("[x: 20, y: 20]")
+    })
+
+    it("clears listeners of destroyed", () => {
+      const _x_ = Fluid.val(10)
+      const _x2_ = Fluid.derive(_x_, x => x * 2)
+
+      const fn = vi.fn()
+      Fluid.listen(_x2_, fn)
+
+      // automatically clears all listeners of _x2_
+      Fluid.destroy(_x2_)
+      Fluid.write(_x_, 20)
+
+      expect(fn).not.toHaveBeenCalled()
+    })
+
+    it("cascadely destroyes derivations and listeners of destroyed", () => {
+      const fn = vi.fn()
+
+      const _x_ = Fluid.val(10)
+      const _x2_ = Fluid.derive(_x_, x => x * 2)
+      const _x3_ = Fluid.derive(_x2_, x => x * 10)
+      Fluid.listen(_x3_, fn)
+
+      Fluid.write(_x_, 50)
+      expect(fn).toHaveBeenCalledWith(1000)
+
+      fn.mockClear()
+      // should destroy _x3_ and listener as well
+      Fluid.destroy(_x2_)
+
+      Fluid.write(_x_, 5)
+      expect(fn).not.toHaveBeenCalled()
+    })
+  })
+
   describe("write", () => {
     it("can take a function as a new value creator", () => {
       const _x_ = Fluid.val(10)
@@ -157,17 +209,33 @@ describe("Fluid", () => {
       const _seconds_ = Fluid.val(1)
       const _timer_ = Fluid.derive(_seconds_, t => t + 1)
 
-      const _g_ = Fluid.derive(
-        _timer_,
-        t => t > Fluid.read(_seconds_),
+      // cache it first
+      Fluid.read(_timer_)
+
+      const fn = vi.fn()
+      const un = Fluid.listen(
+        _seconds_,
+        () => fn(Fluid.read(_timer_) > Fluid.read(_seconds_)),
         { priority: Fluid.priorities.after(_timer_) },
       )
 
-      expect(Fluid.read(_g_)).toBe(true)
-
       Fluid.write(_seconds_, 2)
 
-      expect(Fluid.read(_g_)).toBe(true)
+      expect(fn).toHaveBeenCalledWith(true)
+      un()
+      fn.mockClear()
+
+      // Now try to make it glitch
+
+      Fluid.listen(
+        _seconds_,
+        () => fn(Fluid.read(_timer_) > Fluid.read(_seconds_)),
+        { priority: Fluid.priorities.before(_timer_) },
+      )
+
+      Fluid.write(_seconds_, 3)
+
+      expect(fn).toHaveBeenCalledWith(false)
     })
     it("read _b_ only after change of _a_", () => {
       const _a_ = Fluid.val("a")
@@ -201,6 +269,38 @@ describe("Fluid", () => {
       expect(fn).toBeCalledWith("AB")
       expect(Fluid.read(_c_)).toBe("AB")
     })
+    it("properly sorts large number of priorities", () => {
+      const _msg_ = Fluid.val("")
+      const fn = vi.fn()
+
+      Fluid.listen(
+        _msg_,
+        (msg) => fn("3: " + msg),
+        { priority: 3 },
+      )
+      Fluid.listen(
+        _msg_,
+        (msg) => fn("2: " + msg),
+        { priority: 2 },
+      )
+      Fluid.listen(
+        _msg_,
+        (msg) => fn("4: " + msg),
+        { priority: 4 },
+      )
+      Fluid.listen(
+        _msg_,
+        (msg) => fn("1: " + msg),
+        { priority: 1 },
+      )
+
+      Fluid.write(_msg_, "Hi?")
+
+      expect(fn).toHaveBeenNthCalledWith(1, "4: Hi?")
+      expect(fn).toHaveBeenNthCalledWith(2, "3: Hi?")
+      expect(fn).toHaveBeenNthCalledWith(3, "2: Hi?")
+      expect(fn).toHaveBeenNthCalledWith(4, "1: Hi?")
+    })
   })
 
   //////////////
@@ -228,7 +328,6 @@ describe("Fluid", () => {
     expect(answer).toBe("a([x]y), b([x]y)")
     expect(Fluid.read(_a_)).toBe("a([x]y)")
   })
-
 
   test("Dynamic dependencies", () => {
     /**

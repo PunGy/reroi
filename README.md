@@ -37,14 +37,16 @@ print name // George
 
 ## Implementation
 
-How does the `Fluid` implements it? As natural to general-purpose language like JavaScript as it can be.
+How does the `Fluid` implements it? As natural to general-purpose language like
+JavaScript as it can be.
 
-It does treats reactive values as Algebraic Data Types, means there is a type `Reactive<A>`,
-which splits to `ReactiveValue<A> | ReactiveDerivation<A>`.
-In further text the meaning of *reactive entity* would refer to `Reactive<A>`.
+It does treats reactive values as Algebraic Data Types, means there is a type
+`Reactive<A>`, which splits to `ReactiveValue<A> | ReactiveDerivation<A>`. In
+further text the meaning of *reactive entity* would refer to `Reactive<A>`.
 Otherwise some clarification would be applied, rather it `derive` or a `value`.
 
-So, in order to replicate the reactive system from an example, we need to write this code:
+So, in order to replicate the reactive system from an example, we need to write
+this code:
 
 ```typescript
 import { Fluid } from 'fluid'
@@ -72,10 +74,12 @@ console.log(Fluid.read(_name_)) // George
 
 ### Conceptions
 
-Any reactive entity is an algebraic data type. It means that it can't be used as a plain value, but rather it's a \_container\_ of *something*.
+Any reactive entity is an algebraic data type. It means that it can't be used
+as a plain value, but rather it's a \_container\_ of *something*.
 
-Same as you treat a `Promise`. You can't read the value under the promise directly, you need to unwrap it first.
-For example, you can unwrap it with `await`, like so:
+Same as you treat a `Promise`. You can't read the value under the promise
+directly, you need to unwrap it first. For example, you can unwrap it with
+`await`, like so:
 
 ```typescript
 const reactive_a: Reactive<number> = Fluid.val(10)
@@ -102,20 +106,25 @@ function map<A, B>(_a_: Reactive<A>, fn: (a: A) => B): ReactiveValue<B> {
 const reactive_b: Reactive<number> = map(reactive_a, a => a + 1)
 ```
 
-It's misleadingly similar to `Fluid.derive`, but that is fundamentally a different thing.
-`map` here creates a new `Fluid.val` using value of the existing one. Without ANY subscriptions applied.
+It's misleadingly similar to `Fluid.derive`, but that is fundamentally a
+different thing. `map` here creates a new `Fluid.val` using value of the
+existing one. Without ANY subscriptions applied.
 
-That is the key feature of `Fluid` -
-it doesn't compel you to modify your way of thinking about the values in your system,
-as usually happens with systems like `Mobx`, where a reactive value from the programmer's point
-of view is a "plain" value, which contantly causes side-effect subscriptions.
-Nor is it the same to opinionated libraries like `RxJS`, which is force you to adapt to
-it's own functional-reactive approach, which might not be so easly applied to every architecture.
+That is the key feature of `Fluid` - it doesn't compel you to modify your way
+of thinking about the values in your system, as usually happens with systems
+like `Mobx`, where a reactive value from the programmer's point of view is a
+"plain" value, which contantly causes side-effect subscriptions. Nor is it the
+same to opinionated libraries like `RxJS`, which is force you to adapt to it's
+own functional-reactive approach, which might not be so easly applied to every
+architecture.
 
 In `Fluid` nothing happend **implicitely**.
 
 - When you read with the `Fluid.read`, it is never creates a subscription.
-- When you want to subscribe to changes, you need to pass a reactive entities as a dependency to `Fluid.derive` or `Fluid.listen`.
+- When you want to subscribe to changes, you need to pass a reactive entities
+as a dependency to `Fluid.derive` or `Fluid.listen`.
+
+## Documentaion
 
 ### Fluid.val
 
@@ -124,7 +133,7 @@ Nothing much special.
 
 ### Fluid.derive
 
-Creates a derived from some other reactive value or even derivation.
+Creates a derivation from some other reactive value or even another derivation.
 
 The signature is:
 
@@ -141,7 +150,7 @@ Where:
 - `dependencies`: list or a single reactive entity the `derive` is depended from.
 - `computeFn`: a function which takes a spreaded list of values from dependencies, and returns the value for a derivation.
 - `options`: list of options
-    - `priority`: the priority of update. See in [Fluid.priorities]
+  - `priority`: the priority of update. See in [Fluid.priorities]
 
 The `derivation` is lazy and cached, it means that even if the dependency was updated,
 it would not be recomputed immidiatelly, but on *demand.
@@ -181,8 +190,8 @@ function listen<A>(
 - `dependencies`: list or a single reactive entity on update of which the `effect` emit's on.
 - `effect`: a side-effect function.
 - `options`: list of options.
-    - `priority`: the priority of execution. Default is `Fluid.priorities.base`. See in [Fluid.priorities]
-    - `immidiate`: run an `effect` just right now. Default is `false`,
+  - `priority`: the priority of execution. Default is `Fluid.priorities.base`. See in [Fluid.priorities]
+  - `immidiate`: run an `effect` just right now. Default is `false`,
     means the first time an `effect` is executed is after some change of dependencies.
 
 ### Fluid.read
@@ -224,4 +233,147 @@ Fluid.write(_x_, 10) // I'm on 10
 Fluid.write(_x_, 10) // I'm on 10
 Fluid.write(_x_, 10) // I'm on 10
 ```
+
+### Fluid.destroy
+
+At some point, you might need to destroy the derivation, so it won't react
+on changes anymore(as well as no one will react on it's changes).
+
+We also want to be sure we all links are cleared and we not flooding with
+garbage (our `Fluid` is properly botteled ;)
+
+In order to destroy the derivation, you need to use `Fluid.destroy`.
+
+```typescript
+function destroy(
+    _derivation_: ReactiveDerivation,
+): void;
+```
+
+Once it's destroyed, it sends a message to all it's listeners about it,
+and they will stop listening. If it was the only dependency left,
+the depended will also be cascadely destroyed.
+
+## Order of evaluation
+
+Order of evaluation and reactions is a huge topic in reactive systems.
+It looks like tho:
+
+```typescript
+const _seconds_ = Fluid.val(0)
+setInterval(() => {
+    Fluid.write(_seconds_, s => s + 1)
+}, 1000)
+
+const _ahead_ = Fluid.derive(_seconds_, s => s + 1)
+
+const _isAhead_ = Fluid.derive(_seconds_, (seconds) => {
+    return seconds > Fluid.read(_ahead_)
+})
+```
+
+Would `_isAhead_` always be `true`? Logically speaking it should, but that
+is depends on the order of execution. If it call first the recalculation of `isAhead`,
+the `ahead` might be still not recalculated, and, suddently, the result would be `false`.
+
+> Of course everything would be good if you just write dependencies properly,
+like `[_seconds_, _ahead_]`, or better `[_ahead_]`, but such cases as above can happen
+in your code base.
+
+So, to fix the situation above, and make it always execute **after** the _ahead_, without subscribing to it,
+you can use `Fluild.priorities.after`:
+
+```typescript
+const _isAhead_ = Fluid.derive(
+    _seconds_,
+    seconds => seconds < Fluid.read(_ahead_),
+    { priority: Fluid.priorities.after(_ahead_) }
+)
+```
+
+Now, the `_isAhead_` derivation would always be **after**. You can also make it always be `before`
+the `_ahead_`, so `isAhead` sometimes would evaluate to `false`. In terms of reactivity, the glitch would happen.
+
+### Fluid.priorities
+
+Not only an another derive can be a base for your priority. Any number actually can be used!
+
+Higher the number, higher the priority.
+
+```typescript
+const _msg_ = Fluid.val("")
+
+Fluid.listen(
+    _msg_,
+    (msg) => console.log("3: " + msg),
+    { priority: 3 },
+)
+Fluid.listen(
+    _msg_,
+    (msg) => console.log("2: " + msg),
+    { priority: 2 },
+)
+Fluid.listen(
+    _msg_,
+    (msg) => console.log("4: " + msg),
+    { priority: 4 },
+)
+Fluid.listen(
+    _msg_,
+    (msg) => console.log("1: " + msg),
+    { priority: 1 },
+)
+
+Fluid.write(_msg_, "Hi?")
+// console.log(4: Hi?)
+// console.log(3: Hi?)
+// console.log(2: Hi?)
+// console.log(1: Hi?)
+```
+
+But, it still better to use contants from the `Fluid.priorities`:
+
+- Fluid.priorities
+    - `base`: basic priority `0`
+    - `lowest`: special lowest priority. Always happen at the end, even after `-Infinity`
+    - `highest`: special highest priority. Always happend at the start.
+    - `after`: happen after provided one. Cannot deal with `lowest`
+    - `before`: happen before provided one. Cannot deal with `highest`
+
+### Vital things to keep in mind
+
+### Lazy evaluation
+
+`Fluid.write` is does not revalidate the state of the derive **immidiatelly**, but after direct call.
+That's why, if you try to run an example with `_isAhead_` with plain `Fluid.read`, it will always be `true`,
+even if we mark it with `priorities.after`.
+
+The reason is simple: for the moment you read `_isAhead_`, the state of
+`_ahead_` is already uncached during previous `write` call!
+
+But absolutelly different story would be for a `listen`:
+
+```typescript
+Fluid.listen(
+    _seconds_,
+    () => {
+        console.log(Fluid.read(_seconds_) < Fluid.read(_ahead_))
+    },
+    { priority: Fluid.priorities.after(_ahead_) }
+)
+
+Fluid.write(_seconds_, 5) // console.log(false)
+```
+
+Since `listener` happens immidiatelly as it receives message, it will run
+before clear cache message reach the `_ahead_`.
+
+> Important here is "before clear cache message". It means, if it wasn't cached, it will "glitch" with TRUE!
+That's why you need to be very carefull with priority tweaking.
+
+### Conclusion
+
+Normally, you don't need to tweak the priority (well, because usually you deriving
+from something that is already derived, so, it would happen after). But, if you
+come to conclusion that it would be helpfull to you - go and try it!
 
