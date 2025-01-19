@@ -1,4 +1,6 @@
-# Fluid
+# Reactive Fluid
+
+Library for creating reactive systems with maximum control.
 
 ## Theory behind
 
@@ -49,7 +51,7 @@ So, in order to replicate the reactive system from an example, we need to write
 this code:
 
 ```typescript
-import { Fluid } from 'fluid'
+import { Fluid } from 'reactive-fluid'
 
 const _name_    = Fluid.val("Michal")
 const _surname_ = Fluid.val("Smith")

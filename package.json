@@ -1,21 +1,29 @@
 {
-  "name": "fluid",
-  "private": true,
-  "version": "0.0.1",
+  "name": "reactive-fluid",
+  "private": false,
+  "version": "0.0.2",
+  "description": "Library for creating reactive systems with maximum control.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PunGy/fluid.git"
+  },
   "type": "module",
-  "module": "./dist/fluid.js",
+  "module": "./dist/reactive-fluid.js",
   "exports": {
     ".": {
-      "import": "./dist/index.js"
+      "import": "./dist/reactive-fluid.js",
+      "require": "./dist/reactive-fluid.cjs"
     },
     "./dist/": {
-      "import": "./dist/"
+      "import": "./dist/",
+      "require": "./dist/"
     }
   },
   "types": "./dist/index.d.ts",
   "scripts": {
     "dev": "vite",
-    "build": "rimraf --glob build/**/* && tsc && vite build && dts-bundle-generator --config ./dts-bundle-generator.config.json && copyfiles ./package.json build",
+    "build": "rimraf --glob build/**/* && tsc && vite build && dts-bundle-generator --config ./dts-bundle-generator.config.json && copyfiles package.json README.md LICENSE build",
     "preview": "vite preview",
     "lint": "eslint --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint --fix",
