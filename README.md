@@ -1,5 +1,7 @@
 # Reactive Fluid
 
+[![npm](https://img.shields.io/npm/v/reactive-fluid.svg)](https://www.npmjs.com/package/reactive-fluid)
+
 Library for creating reactive systems with maximum control.
 
 ## Theory behind
