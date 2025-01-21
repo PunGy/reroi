@@ -4,6 +4,26 @@
 
 Library for creating reactive systems with maximum control.
 
+## Content
+
+- [Theory behind](#theory-behind)
+- [Implementation](#implementation)
+  - [Conceptions](#conceptions)
+- [Documentation](#documentation)
+  - [Fluid.val](#fluidval)
+  - [Fluid.derive](#fluidderive)
+  - [Fluid.listen](#fluidlisten)
+  - [Fluid.read](#fluidread)
+- [Order of evaluation](#order-of-evaluation)
+  - [Fluid.priorities](#fluidpriorities)
+  - [Vital things to keep in mind](#vital-things-to-keep-in-mind)
+  - [Lazy evaluation](#lazy-evaluation)
+  - [Conclusion](#conclusion)
+- [Examples](#examples)
+  - [React](#react)
+    - [React connector](#react-connector)
+    - [Shopping Cart](#shopping-cart)
+
 ## Theory behind
 
 Classical reactivity system, at the core, have two basic entities:
@@ -363,7 +383,7 @@ Fluid.listen(
     () => {
         console.log(Fluid.read(_seconds_) < Fluid.read(_ahead_))
     },
-    { priority: Fluid.priorities.after(_ahead_) }
+    { priority: Fluid.priorities.before(_ahead_) }
 )
 
 Fluid.write(_seconds_, 5) // console.log(false)
@@ -381,3 +401,62 @@ Normally, you don't need to tweak the priority (well, because usually you derivi
 from something that is already derived, so, it would happen after). But, if you
 come to conclusion that it would be helpfull to you - go and try it!
 
+## Examples
+
+List of good and complete examples of `Fluid` usage
+
+### React
+
+In order to connect `Fluid` with react, we need to write a custom hook.
+
+#### React connector
+
+`useReactive` hook listens to updates from the `_reactive_`, put the value to
+the ref, and `forceUpdate` the state (because `useState` applies memoisation if
+the same value was written, which is not the case for `Fluid`).
+
+```typescript
+import { useEffect, useReducer, useRef } from "react";
+import { Fluid, Reactive } from "reactive-fluid";
+
+export function useReactive<V>(_reactive_: Reactive<V>): V {
+  const [, forceUpdate] = useReducer(x => !x, false)
+  const listener = useRef<ReturnType<typeof Fluid.listen> | null>(null)
+  const value = useRef(Fluid.read(_reactive_))
+
+  useEffect(
+    () => {
+      if (listener.current !== null) {
+        // unsub from old reactive
+        listener.current()
+      }
+
+      listener.current = Fluid.listen(
+        _reactive_,
+        v => {
+          value.current = v
+          forceUpdate()
+        }
+      )
+      return listener.current
+    },
+    [_reactive_]
+  )
+
+  return value.current
+}
+```
+
+Based on that hook, we can use `Fluid` as a nice state manager. Here is an examples
+
+#### Shopping Cart
+
+[Try on codesandbox](https://codesandbox.io/p/sandbox/q3r8cm)
+
+App with dozens of reactions. Shopping cart with discounts: add some items, see
+how the price is increases, how discount rates are applied based on the total
+price, add or remove discount rates. And check out how nice the state is used:
+no props drilling, no cumbersome structures or complicated solutions.
+
+An entrire state is in `model.ts`, and it is connected to components with
+`useReactive` hook.
