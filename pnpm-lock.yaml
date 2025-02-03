@@ -41,6 +41,9 @@ importers:
       rimraf:
         specifier: ^6.0.1
         version: 6.0.1
+      type-fest:
+        specifier: ^4.33.0
+        version: 4.33.0
       typescript:
         specifier: ~5.6.2
         version: 5.6.3
@@ -1302,6 +1305,10 @@ packages:
   type-check@0.4.0:
     resolution: {integrity: sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==}
     engines: {node: '>= 0.8.0'}
+
+  type-fest@4.33.0:
+    resolution: {integrity: sha512-s6zVrxuyKbbAsSAD5ZPTB77q4YIdRctkTbJ2/Dqlinwz+8ooH2gd+YA7VA6Pa93KML9GockVvoxjZ2vHP+mu8g==}
+    engines: {node: '>=16'}
 
   typescript-eslint@8.20.0:
     resolution: {integrity: sha512-Kxz2QRFsgbWj6Xcftlw3Dd154b3cEPFqQC+qMZrMypSijPd4UanKKvoKDrJ4o8AIfZFKAF+7sMaEIR8mTElozA==}
@@ -2639,6 +2646,8 @@ snapshots:
   type-check@0.4.0:
     dependencies:
       prelude-ls: 1.2.1
+
+  type-fest@4.33.0: {}
 
   typescript-eslint@8.20.0(eslint@9.18.0)(typescript@5.6.3):
     dependencies:

@@ -204,6 +204,167 @@ describe("Fluid", () => {
     })
   })
 
+  describe("transactions", () => {
+    describe("write", () => {
+      it("update the value and dependencies only after explicit run", () => {
+        const _x_ = Fluid.val(10)
+
+        const fn = vi.fn()
+        Fluid.listen(_x_, fn)
+
+        const tr = Fluid.transaction.write(_x_, 20)
+
+        expect(fn).not.toHaveBeenCalled()
+        expect(Fluid.read(_x_)).toBe(10)
+
+        const res = tr.run()
+
+        expect(fn).toHaveBeenCalled()
+        expect(Fluid.read(_x_)).toBe(20)
+        expect(Fluid.transaction.isResolved(res) && res.value === 20).toBeTruthy()
+      })
+
+      it("does not write the value if transaction was rejected", () => {
+        const _x_ = Fluid.val(10)
+
+        const fn = vi.fn()
+        Fluid.listen(_x_, fn)
+
+        const tr = Fluid.transaction.write(_x_, () => {
+          return Fluid.transaction.rejected(0)
+        })
+
+        const res = tr.run()
+
+        expect(fn).not.toHaveBeenCalled()
+        expect(Fluid.read(_x_)).toBe(10)
+        expect(Fluid.transaction.isRejected(res) && res.error === 0).toBeTruthy()
+      })
+    })
+
+    describe("compose", () => {
+      it("combines transactions to a single one, and returns last transaction value", () => {
+        const _a_ = Fluid.val("a")
+        const _b_ = Fluid.val("b")
+        const _c_ = Fluid.val("c")
+
+        const fn = vi.fn()
+
+        const _combine_ = Fluid.derive(
+          [_a_, _b_, _c_],
+          (a, b, c) => a + b + c,
+        )
+
+        Fluid.listen(_combine_, fn)
+
+        const tr = Fluid.transaction.compose(
+          Fluid.transaction.write(_a_, "A"),
+          Fluid.transaction.write(_b_, "B"),
+          Fluid.transaction.write(_c_, "C"),
+        )
+
+        expect(fn).not.toHaveBeenCalled()
+        expect(Fluid.read(_a_)).toBe("a")
+
+        const res = tr.run()
+
+        expect(fn).toHaveBeenCalledOnce()
+        expect(fn).toHaveBeenCalledWith("ABC")
+        expect(Fluid.transaction.isResolved(res) && res.value === "C").toBeTruthy()
+      })
+
+      it("does not modifies anything until transaction not fullfilled", () => {
+        const _a_ = Fluid.val("a")
+        const _b_ = Fluid.val("b")
+        const _c_ = Fluid.val("c")
+
+        const fn = vi.fn()
+
+        const tr = Fluid.transaction.compose(
+          Fluid.transaction.write(_a_, "A"),
+          Fluid.transaction.write(_b_, () => {
+            fn(Fluid.read(_a_))
+            return Fluid.transaction.resolved("B")
+          }),
+          Fluid.transaction.write(_c_, () => {
+            fn(Fluid.read(_b_))
+            return Fluid.transaction.resolved("C")
+          }),
+        )
+
+        tr.run()
+
+        expect(fn).toHaveBeenNthCalledWith(1, "a")
+        expect(fn).toHaveBeenNthCalledWith(2, "b")
+      })
+
+      it("values of previous resolved transactions can be accessed via context", () => {
+        const _a_ = Fluid.val("a")
+        const _b_ = Fluid.val("b")
+        const _c_ = Fluid.val("c")
+
+        const fn = vi.fn()
+        Fluid.listen(_c_, fn)
+
+        const tr = Fluid.transaction.compose(
+          Fluid.transaction.write(_a_, "A", "a"),
+          Fluid.transaction.write(_b_, (_, { a }) => Fluid.transaction.resolved(a + "B"), "b"),
+          Fluid.transaction.write(_c_, (_, { b }) => Fluid.transaction.resolved(b + "C"), "c"),
+        )
+
+        tr.run()
+
+        expect(fn).toHaveBeenCalledWith("ABC")
+      })
+
+      it("does not modifies value or notifies dependencies on rejected transaction, and returns an error", () => {
+        const _a_ = Fluid.val("a")
+        const _b_ = Fluid.val("b")
+        const _c_ = Fluid.val("c")
+
+        const fn = vi.fn()
+        Fluid.listen(_a_, fn)
+        Fluid.listen(_b_, fn)
+        Fluid.listen(_c_, fn)
+
+        const tr = Fluid.transaction.compose(
+          Fluid.transaction.write(_a_, "A", "a"),
+          Fluid.transaction.write(_b_, () => Fluid.transaction.rejected("error"), "b"),
+          Fluid.transaction.write(_c_, () => Fluid.transaction.resolved("C"), "c"),
+        )
+
+        const res = tr.run()
+
+        expect(Fluid.read(_a_)).toBe("a")
+        expect(Fluid.read(_b_)).toBe("b")
+        expect(Fluid.read(_c_)).toBe("c")
+        expect(fn).not.toHaveBeenCalled()
+        expect(Fluid.transaction.isRejected(res) && res.error === "error").toBeTruthy()
+      })
+    })
+  })
+
+  describe("peek", () => {
+    it("shows a value of derive based on provided dependencies", () => {
+      const _a_ = Fluid.val("a")
+      const _b_ = Fluid.val("b")
+      const _aa_ = Fluid.derive(_a_, (a) => a + a)
+
+      Fluid.transaction.compose(
+        Fluid.transaction.write(_a_, "A", "a"),
+        Fluid.transaction.write(_b_, (_, ctx) => {
+          const bigAA = Fluid.peek(_aa_, [ctx.a])
+
+          return Fluid.transaction.resolved(bigAA + "B")
+        }),
+      ).run()
+
+      expect(Fluid.read(_b_)).toBe("AAB")
+    })
+
+  })
+
+
   describe("Priority of reaction", () => {
     it("should resolve basic glitch example", () => {
       const _seconds_ = Fluid.val(1)
@@ -327,6 +488,64 @@ describe("Fluid", () => {
 
     expect(answer).toBe("a([x]y), b([x]y)")
     expect(Fluid.read(_a_)).toBe("a([x]y)")
+  })
+
+  test("diamond problem", () => {
+    const _a_ = Fluid.val("a")
+
+    const _b_ = Fluid.derive(
+      _a_,
+      a => a + "b",
+      { priority: Fluid.priorities.base },
+    )
+    const _c_ = Fluid.derive(
+      _a_,
+      a => a + "c",
+      { priority: Fluid.priorities.after(_b_) },
+    )
+
+    const _d_ = Fluid.derive(
+      _a_,
+      () => Fluid.read(_b_) + Fluid.read(_c_),
+      { priority: Fluid.priorities.after(_c_) },
+    )
+
+    const fn = vi.fn()
+    Fluid.listen(_d_, fn)
+
+    Fluid.write(_a_, "A")
+
+    expect(fn).toHaveBeenCalledOnce()
+    expect(fn).toHaveBeenCalledWith("AbAc")
+  })
+
+  test("Transactions with peek", () => {
+    const _discount_ = Fluid.val(0.10)
+    const _lastEditTimestamp_ = Fluid.val(0)
+    const _totalPrice_ = Fluid.val(7000)
+    const _finalPrice_ = Fluid.derive([_totalPrice_, _discount_], (price, discount) => {
+      return price * discount
+    })
+
+    const setDiscount = (newDiscount: number) => {
+      return Fluid.transaction.compose(
+        Fluid.transaction.write(_discount_, () => {
+          const newFinalPrice = Fluid.peek(_finalPrice_, [Fluid.read(_totalPrice_), newDiscount])
+          const finalPriceDiff = Fluid.read(_finalPrice_) - newFinalPrice
+
+          if (finalPriceDiff > 1000) {
+            return Fluid.transaction.rejected("Discount is too high for such a cost")
+          }
+
+          return Fluid.transaction.resolved(newDiscount)
+        }),
+        Fluid.transaction.write(_lastEditTimestamp_, Date.now()),
+      )
+    }
+
+    setDiscount(0.5) // Discount is too high for such a cost
+    Fluid.read(_discount_) // 0.10
+    Fluid.read(_lastEditTimestamp_) // 0
   })
 
   test("Dynamic dependencies", () => {

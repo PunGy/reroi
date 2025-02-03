@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-empty-object-type */
 /**
  * Reactive system libary
  */
 
+import { flow, pipe } from "./lib/composition"
 import { SparseArray } from "./lib/sparseArray"
 
 //////////////
@@ -89,7 +91,8 @@ const priorities: Priorities = {
   },
 }
 
-class PriorityPool extends SparseArray<Map<unknown, Message>> {
+type Pool = Map<unknown, Message>
+export class PriorityPool extends SparseArray<Pool> {
   push(value: Map<unknown, Message>, index7?: Priority): Map<unknown, Message> {
     if (index7 === priorities.lowest) {
       return this.lowest = value
@@ -123,7 +126,7 @@ class PriorityPool extends SparseArray<Map<unknown, Message>> {
   lowest: Map<unknown, Message> | undefined
   highest: Map<unknown, Message> | undefined
 
-  forEach(fn: (arg: Map<unknown, Message>, index: number) => void): void {
+  forEachBackward(fn: (arg: Map<unknown, Message>, index: number) => void): void {
     if (this.highest) {
       fn(this.highest, +Infinity)
     }
@@ -131,6 +134,52 @@ class PriorityPool extends SparseArray<Map<unknown, Message>> {
     if (this.lowest) {
       fn(this.lowest, -Infinity)
     }
+  }
+
+  /**
+   * Merges two priority pools together
+   *
+   * The merge is not "plain", it also filters out repetitive sources,
+   * so the resulting pool is only consists of unique messages
+   *
+   * Dependencies, in case if they are to the same target,
+   * will be resolved in the following way: the highest priority would take a lead
+   */
+  static merge(p1: PriorityPool, p2: PriorityPool) {
+    const result = new PriorityPool()
+    const seen = new Set()
+
+    // put entire p1 to result
+    p1.forEachBackward((pool, priority) => {
+      result.push(pool, priority)
+      pool.forEach((_, source) => {
+        seen.add(source)
+      })
+    })
+
+    // merge with p2, filter out already seen connections
+    p2.forEachBackward((pool, priority) => {
+      const merged: Pool = new Map()
+      pool.forEach((message, source) => {
+        if (seen.has(source)) {
+          return
+        }
+        merged.set(source, message)
+        seen.add(source)
+      })
+      if (merged.size > 0) {
+        const existingPool = result.get(priority)
+        if (existingPool) {
+          merged.forEach((message, source) => {
+            existingPool.set(source, message)
+          })
+        } else {
+          result.push(merged, priority)
+        }
+      }
+    })
+
+    return result
   }
 }
 
@@ -143,29 +192,65 @@ export interface ReactiveValue<V> {
   __tag: typeof _rVal;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export interface ReactiveDerivation<V> {
+export interface ReactiveDerivation<V, D extends Array<unknown> = Array<unknown>> {
   __tag: typeof _rDerive;
+  /** @deprecated Exists only for types */
+  __meta_value: V;
+  /** @deprecated Exists only for types */
+  __meta_dependencies: D,
 }
 
 export type Reactive<V = unknown> = ReactiveValue<V> | ReactiveDerivation<V>
 
+const _resolvedTransaction = Symbol("resolvedTransaction")
+const _rejectedTransaction = Symbol("resolvedTransaction")
+export type TransactionResolved<R> = {
+  __tag: typeof _resolvedTransaction;
+  value: R;
+}
+export type TransactionRejected<E> = {
+  __tag: typeof _rejectedTransaction;
+  error: E;
+}
+export type TransactionState<R, E> = TransactionResolved<R> | TransactionRejected<E>
+
+export interface ReactiveTransaction<
+  R = unknown,
+  E = unknown,
+  C = unknown,
+  ID extends string = string
+> {
+  run(): TransactionState<R, E>;
+  id?: ID,
+  context: C,
+}
+
 // Private
 
-interface _ReactiveValue<V> extends ReactiveValue<V> {
-  value: V;
+interface Dependable {
   dependencies: PriorityPool;
 }
 
-interface _ReactiveDerivation<V> extends ReactiveDerivation<V> {
+interface _ReactiveValue<V> extends ReactiveValue<V>, Dependable {
+  value: V;
+}
+
+interface _ReactiveDerivation<V, D extends Array<unknown> = Array<unknown>> extends ReactiveDerivation<V, D>, Dependable {
   _destroy(): void;
   _cache: (typeof nullCache) | V;
   priority: Priority;
-  dependencies: PriorityPool;
   value(): V;
+  fn: (...values: D) => V,
 }
 
 type _Reactive<V = unknown> = _ReactiveValue<V> | _ReactiveDerivation<V>
+
+interface _ReactiveTransaction<R, E, C, ID extends string> extends ReactiveTransaction<R, E, C, ID>, Dependable {
+  // Run, but does not notifies dependencies, nor writing a value
+  silentRun(ctx: C): TransactionState<R, E>;
+  // write a value
+  write(value: R): void;
+}
 
 // Utilities // Helpers
 
@@ -181,7 +266,7 @@ function isDerive<V>(_value_: Reactive<V> | any): _value_ is _ReactiveDerivation
 }
 
 const notifyDeps = (_r_: _Reactive, type: NotificationType) => {
-  _r_.dependencies.forEach((pool) => {
+  _r_.dependencies.forEachBackward((pool) => {
     pool.forEach(message => {
       message(_r_, type)
     })
@@ -201,10 +286,25 @@ const read = <V>(_reactive_: Reactive<V>): V => {
     return _reactive_.value
   }
   if (isDerive(_reactive_)) {
-    return _reactive_.value()
+    return _reactive_._cache === nullCache
+      ? _reactive_.value()
+      : _reactive_._cache
   }
 
   throw new Error("Fluid: you can read only reactive entities!")
+}
+
+const peek = <R extends ReactiveDerivation<unknown>>(_derive_: R, dependencies: R["__meta_dependencies"]): R["__meta_value"] => {
+  return (_derive_ as unknown as _ReactiveDerivation<R["__meta_value"], R["__meta_dependencies"]>)
+    .fn(...dependencies)
+}
+
+const mutateReactiveVal = <A>(_value_: ReactiveValue<A>, newValue: A | ((v: A) => A), props?: { literateFn?: boolean }) => {
+  (_value_ as _ReactiveValue<A>).value = props?.literateFn
+    ? newValue as A
+    : typeof newValue === "function"
+      ? (newValue as (a: A) => A)(read(_value_))
+      : newValue
 }
 
 /**
@@ -212,32 +312,327 @@ const read = <V>(_reactive_: Reactive<V>): V => {
  * Does not used any kind of memoization or comparations
  * - always writes a new value and notifies dependencies about change
  */
-function write<A, B>(
+function write<A>(
   _value_: ReactiveValue<A>,
-  newValue: B,
+  newValue: A,
   props: { literateFn: true },
-): ReactiveValue<B>;
-function write<A, B>(
+): ReactiveValue<A>;
+function write<A>(
   _value_: ReactiveValue<A>,
-  newValue: B | ((aVal: A) => B),
+  newValue: A | ((aVal: A) => A),
   props?: { literateFn?: boolean },
-): ReactiveValue<B>;
-function write<A, B>(
+): ReactiveValue<A>;
+function write<A>(
   _value_: ReactiveValue<A>,
-  newValue: B | ((aVal: A) => B),
+  newValue: A | ((aVal: A) => A),
   props?: { literateFn?: boolean },
-): ReactiveValue<B> {
+): ReactiveValue<A> {
   if (_value_.__tag !== _rVal) {
     throw new Error("Fluid: You can write only to ReactiveValue created with Fluid.val!!!")
   }
 
-  (_value_ as _ReactiveValue<B>).value = props?.literateFn
-    ? newValue as B
-    : typeof newValue === "function"
-      ? (newValue as ((aVal: A) => B))(read(_value_))
-      : newValue
-  notifyDeps((_value_ as _ReactiveValue<B>), NotificationType.UPDATE)
+  mutateReactiveVal(_value_, newValue, props)
+  notifyDeps((_value_ as _ReactiveValue<A>), NotificationType.UPDATE)
+
   return _value_
+}
+
+/////////////////
+// Transactions
+
+const resolved = <R>(value: R): TransactionResolved<R> => ({
+  __tag: _resolvedTransaction,
+  value,
+})
+const rejected = <E>(error: E): TransactionRejected<E> => ({
+  __tag: _rejectedTransaction,
+  error,
+})
+function isResolved<R, E>(transaction: TransactionState<R, E>): transaction is TransactionResolved<R> {
+  return transaction.__tag === _resolvedTransaction
+}
+function isRejected<R, E>(transaction: TransactionState<R, E>): transaction is TransactionRejected<E> {
+  return transaction.__tag === _rejectedTransaction
+}
+
+
+const mapTR = <R, R2, E>(fn: (a: R) => R2) => (transaction: TransactionState<R, E>): TransactionState<R2, E> => {
+  return isResolved(transaction) ? resolved(fn(transaction.value)) : transaction
+}
+const mapTF = <R, E, E2>(fn: (a: E) => E2) => (transaction: TransactionState<R, E>): TransactionState<R, E2> => {
+  return isRejected(transaction) ? rejected(fn(transaction.error)) : transaction
+}
+
+const foldT = <R, E, B>(onResolved: (r: R) => B, onRejected: (e: E) => B) => (transaction: TransactionState<R, E>): B => {
+  return isResolved(transaction)
+    ? onResolved(transaction.value)
+    : onRejected(transaction.error)
+}
+
+const runTransaction = <A, E, C>(
+  _v_: ReactiveValue<A>,
+  newValue: A | ((aVal: A, context: C) => TransactionState<A, E>), context: C) => {
+  return typeof newValue === "function"
+    ? (newValue as (a: A, context: C) => TransactionState<A, E>)(read(_v_), context)
+    : resolved(newValue)
+}
+
+function writeT<A, E, C, ID extends string>(
+  _value_: ReactiveValue<A>,
+  newValue: (aVal: A, context: C) => TransactionState<A, E>,
+  id?: ID
+): ReactiveTransaction<A, E, C, ID>;
+function writeT<A, _, C, ID extends string>(
+  _value_: ReactiveValue<A>,
+  newValue: A,
+  id?: ID
+): ReactiveTransaction<A, never, C, ID>;
+function writeT<A, E, C, ID extends string>(
+  _value_: ReactiveValue<A>,
+  newValue: A | ((aVal: A, context: C) => TransactionState<A, E>),
+  id?: ID,
+): ReactiveTransaction<A, E, C, ID> {
+  if (_value_.__tag !== _rVal) {
+    throw new Error("Fluid: You can write only to ReactiveValue created with Fluid.val!!!")
+  }
+  const _v_ = _value_ as _ReactiveValue<A>
+
+  const tr: _ReactiveTransaction<A, E, C, ID> = {
+    run() {
+      return pipe(
+        runTransaction(_v_, newValue, this.context),
+        mapTR(v => {
+          this.write(v)
+          notifyDeps(_v_, NotificationType.UPDATE)
+          return v
+        }),
+      )
+    },
+    silentRun(ctx: C) {
+      this.context = ctx
+      return runTransaction(_v_, newValue, this.context)
+    },
+    write(value: A) {
+      _v_.value = value
+    },
+    context: {} as C,
+    dependencies: _v_.dependencies,
+    id,
+  }
+
+  return tr as ReactiveTransaction<A, E, C, ID>
+}
+
+type ResolvedField<T extends TransactionState<unknown, unknown>> = T extends TransactionResolved<unknown> ? T["value"] : never
+type RejectedField<T extends TransactionState<unknown, unknown>> = T extends TransactionRejected<unknown> ? T["error"] : never
+type ExtractResolved<T extends ReactiveTransaction> = ResolvedField<ReturnType<T["run"]>>
+type ExtractRejected<T extends ReactiveTransaction> = RejectedField<ReturnType<T["run"]>>
+
+type RemoveUnknown<T> = T extends unknown ? unknown extends T ? never : T : T;
+
+/**
+There was an attempt to not use function overloading and with following type constructor
+It works correctly, but unfortunatelly I can't combine it with type infering :(
+
+type ComposeContext<TRs extends Array<ReactiveTransaction>, Acc extends Array<ReactiveTransaction> = []> =
+  Acc extends [...infer _, infer Processed]
+    ? Processed extends ReactiveTransaction
+      ? TRs extends [infer Processing, ...infer Rest]
+        ? Processing extends ReactiveTransaction
+          ? ComposeContext< Rest
+                          , [ ...Acc
+                            , ReactiveTransaction< ExtractResolved<Processing>
+                                                 , ExtractFailed<Processing>
+                                                 , Processed["id"] extends undefined ? {} : Processed["context"] & { [K in NonNullable<Processed["id"]>]: ExtractResolved<Processed> }
+                                                 , NonNullable<Processing["id"]>>]>
+          : never
+        : Acc
+      : never
+    : Acc
+
+type t = ComposeContext<
+  [
+    ReactiveTransaction<2, -1, unknown, "b">,
+    ReactiveTransaction<3, -1, unknown, "c">,
+    ReactiveTransaction<4, -1, unknown, "d">,
+  ],
+  [ReactiveTransaction<1, -1, {}, "a">]
+>
+*/
+
+
+/**
+ * Composing transaction into one transaction
+ */
+function composeT<T1R, T1F, T1ID extends string>(tr1: ReactiveTransaction<T1R, T1F, {}, T1ID>): ReactiveTransaction<T1R, T1F>;
+function composeT< T1R, T1F, T1ID extends string
+                   , T2R, T2F, T2ID extends string>( tr1: ReactiveTransaction<T1R, T1F, {}, T1ID>
+                                                    , tr2: ReactiveTransaction<T2R, T2F, { [K in T1ID]: T1R }, T2ID>): ReactiveTransaction<T2R, T1F | T2F>;
+function composeT< T1R, T1F, T1ID extends string
+                    , T2R, T2F, T2ID extends string
+                    , T3R, T3F, T3ID extends string>( tr1: ReactiveTransaction<T1R, T1F, {}, T1ID>
+                                                    , tr2: ReactiveTransaction<T2R, T2F, { [K in T1ID]: T1R }, T2ID>
+                                                    , tr3: ReactiveTransaction<T3R, T3F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R }, T3ID>): ReactiveTransaction<T3R, T1F | T2F | T3F>;
+function composeT< T1R, T1F, T1ID extends string
+                    , T2R, T2F, T2ID extends string
+                    , T3R, T3F, T3ID extends string
+                    , T4R, T4F, T4ID extends string>( tr1: ReactiveTransaction<T1R, T1F, {}, T1ID>
+                                                    , tr2: ReactiveTransaction<T2R, T2F, { [K in T1ID]: T1R }, T2ID>
+                                                    , tr3: ReactiveTransaction<T3R, T3F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R }, T3ID>
+                                                    , tr4: ReactiveTransaction<T4R, T4F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R }, T4ID>): ReactiveTransaction<T4R, T1F | T2F | T3F | T4F>;
+
+function composeT< T1R, T1F, T1ID extends string
+                    , T2R, T2F, T2ID extends string
+                    , T3R, T3F, T3ID extends string
+                    , T4R, T4F, T4ID extends string
+                    , T5R, T5F, T5ID extends string>( tr1: ReactiveTransaction<T1R, T1F, {}, T1ID>
+                                                    , tr2: ReactiveTransaction<T2R, T2F, { [K in T1ID]: T1R }, T2ID>
+                                                    , tr3: ReactiveTransaction<T3R, T3F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R }, T3ID>
+                                                    , tr4: ReactiveTransaction<T4R, T4F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R }, T4ID>
+                                                    , tr5: ReactiveTransaction<T5R, T5F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R }, T5ID>): ReactiveTransaction<T5R, T1F | T2F | T3F | T4F | T5F>;
+
+function composeT< T1R, T1F, T1ID extends string
+                    , T2R, T2F, T2ID extends string
+                    , T3R, T3F, T3ID extends string
+                    , T4R, T4F, T4ID extends string
+                    , T5R, T5F, T5ID extends string
+                    , T6R, T6F, T6ID extends string>( tr1: ReactiveTransaction<T1R, T1F, {}, T1ID>
+                                                    , tr2: ReactiveTransaction<T2R, T2F, { [K in T1ID]: T1R }, T2ID>
+                                                    , tr3: ReactiveTransaction<T3R, T3F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R }, T3ID>
+                                                    , tr4: ReactiveTransaction<T4R, T4F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R }, T4ID>
+                                                    , tr5: ReactiveTransaction<T5R, T5F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R }, T5ID>
+                                                    , tr6: ReactiveTransaction<T6R, T6F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R }, T6ID>): ReactiveTransaction<T6R, T1F | T2F | T3F | T4F | T5F | T6F>;
+
+function composeT< T1R, T1F, T1ID extends string
+                    , T2R, T2F, T2ID extends string
+                    , T3R, T3F, T3ID extends string
+                    , T4R, T4F, T4ID extends string
+                    , T5R, T5F, T5ID extends string
+                    , T6R, T6F, T6ID extends string
+                    , T7R, T7F, T7ID extends string>( tr1: ReactiveTransaction<T1R, T1F, {}, T1ID>
+                                                    , tr2: ReactiveTransaction<T2R, T2F, { [K in T1ID]: T1R }, T2ID>
+                                                    , tr3: ReactiveTransaction<T3R, T3F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R }, T3ID>
+                                                    , tr4: ReactiveTransaction<T4R, T4F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R }, T4ID>
+                                                    , tr5: ReactiveTransaction<T5R, T5F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R }, T5ID>
+                                                    , tr6: ReactiveTransaction<T6R, T6F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R }, T6ID>
+                                                    , tr7: ReactiveTransaction<T7R, T7F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R } & { [K in T6ID]: T6R }, T7ID>): ReactiveTransaction<T7R, T1F | T2F | T3F | T4F | T5F | T6F | T7F>;
+
+function composeT< T1R, T1F, T1ID extends string
+                    , T2R, T2F, T2ID extends string
+                    , T3R, T3F, T3ID extends string
+                    , T4R, T4F, T4ID extends string
+                    , T5R, T5F, T5ID extends string
+                    , T6R, T6F, T6ID extends string
+                    , T7R, T7F, T7ID extends string
+                    , T8R, T8F, T8ID extends string>( tr1: ReactiveTransaction<T1R, T1F, {}, T1ID>
+                                                    , tr2: ReactiveTransaction<T2R, T2F, { [K in T1ID]: T1R }, T2ID>
+                                                    , tr3: ReactiveTransaction<T3R, T3F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R }, T3ID>
+                                                    , tr4: ReactiveTransaction<T4R, T4F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R }, T4ID>
+                                                    , tr5: ReactiveTransaction<T5R, T5F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R }, T5ID>
+                                                    , tr6: ReactiveTransaction<T6R, T6F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R }, T6ID>
+                                                    , tr7: ReactiveTransaction<T7R, T7F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R } & { [K in T6ID]: T6R }, T7ID>
+                                                    , tr8: ReactiveTransaction<T8R, T8F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R } & { [K in T6ID]: T6R } & { [K in T7ID]: T7R }, T8ID>): ReactiveTransaction<T8R, T1F | T2F | T3F | T4F | T5F | T6F | T7F | T8F>;
+
+function composeT< T1R, T1F, T1ID extends string
+                    , T2R, T2F, T2ID extends string
+                    , T3R, T3F, T3ID extends string
+                    , T4R, T4F, T4ID extends string
+                    , T5R, T5F, T5ID extends string
+                    , T6R, T6F, T6ID extends string
+                    , T7R, T7F, T7ID extends string
+                    , T8R, T8F, T8ID extends string
+                    , T9R, T9F, T9ID extends string>( tr1: ReactiveTransaction<T1R, T1F, {}, T1ID>
+                                                    , tr2: ReactiveTransaction<T2R, T2F, { [K in T1ID]: T1R }, T2ID>
+                                                    , tr3: ReactiveTransaction<T3R, T3F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R }, T3ID>
+                                                    , tr4: ReactiveTransaction<T4R, T4F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R }, T4ID>
+                                                    , tr5: ReactiveTransaction<T5R, T5F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R }, T5ID>
+                                                    , tr6: ReactiveTransaction<T6R, T6F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R }, T6ID>
+                                                    , tr7: ReactiveTransaction<T7R, T7F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R } & { [K in T6ID]: T6R }, T7ID>
+                                                    , tr8: ReactiveTransaction<T8R, T8F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R } & { [K in T6ID]: T6R } & { [K in T7ID]: T7R }, T8ID>
+                                                    , tr9: ReactiveTransaction<T9R, T9F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R } & { [K in T6ID]: T6R } & { [K in T7ID]: T7R } & { [K in T8ID]: T8R }, T9ID>): ReactiveTransaction<T9R, T1F | T2F | T3F | T4F | T5F | T6F | T7F | T8F | T9F>;
+
+function composeT< T1R, T1F, T1ID extends string
+                    , T2R, T2F, T2ID extends string
+                    , T3R, T3F, T3ID extends string
+                    , T4R, T4F, T4ID extends string
+                    , T5R, T5F, T5ID extends string
+                    , T6R, T6F, T6ID extends string
+                    , T7R, T7F, T7ID extends string
+                    , T8R, T8F, T8ID extends string
+                    , T9R, T9F, T9ID extends string
+                    , T10R, T10F, T10ID extends string>( tr1: ReactiveTransaction<T1R, T1F, {}, T1ID>
+                                                       , tr2: ReactiveTransaction<T2R, T2F, { [K in T1ID]: T1R }, T2ID>
+                                                       , tr3: ReactiveTransaction<T3R, T3F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R }, T3ID>
+                                                       , tr4: ReactiveTransaction<T4R, T4F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R }, T4ID>
+                                                       , tr5: ReactiveTransaction<T5R, T5F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R }, T5ID>
+                                                       , tr6: ReactiveTransaction<T6R, T6F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R }, T6ID>
+                                                       , tr7: ReactiveTransaction<T7R, T7F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R } & { [K in T6ID]: T6R }, T7ID>
+                                                       , tr8: ReactiveTransaction<T8R, T8F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R } & { [K in T6ID]: T6R } & { [K in T7ID]: T7R }, T8ID>
+                                                       , tr9: ReactiveTransaction<T9R, T9F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R } & { [K in T6ID]: T6R } & { [K in T7ID]: T7R } & { [K in T8ID]: T8R }, T9ID>
+                                                       , tr10: ReactiveTransaction<T10R, T10F, { [K in T1ID]: T1R } & { [K in T2ID]: T2R } & { [K in T3ID]: T3R } & { [K in T4ID]: T4R } & { [K in T5ID]: T5R } & { [K in T6ID]: T6R } & { [K in T7ID]: T7R } & { [K in T8ID]: T8R } & { [K in T9ID]: T9R }, T10ID>): ReactiveTransaction<T10R, T1F | T2F | T3F | T4F | T5F | T6F | T7F | T8F | T9F | T10F>;
+function composeT<
+  TRs extends Array<ReactiveTransaction>,
+>(...transactions: TRs): ReactiveTransaction {
+  const _transactions = transactions as unknown as Array<_ReactiveTransaction<unknown, unknown, any, string>>
+
+  let dependencies: PriorityPool | null = null
+  for (const tr of _transactions) {
+    if (dependencies) {
+      dependencies = PriorityPool.merge(dependencies, tr.dependencies)
+    } else {
+      dependencies = tr.dependencies
+    }
+  }
+  if (!dependencies) {
+    throw new Error("Fluid.transaction: empty transaction list!")
+  }
+
+  const silentRun = <C extends Record<string, unknown>>(ctx: C = {} as C) => {
+    let resT: TransactionState<Array<[_ReactiveTransaction<unknown, unknown, unknown, string>, unknown]>, unknown> = resolved([])
+    const context: Record<string, unknown> = ctx
+
+    for (const tr of _transactions) {
+      resT = pipe(
+        tr.silentRun(context),
+        mapTR(res => {
+          if (isResolved(resT)) {
+            if (tr.id) {
+              context[tr.id] = res
+            }
+            return resT.value.concat([[tr, res]])
+          }
+          throw new Error("Fluid: inconsistent state of transaction")
+        }),
+      )
+
+      if (isRejected(resT)) {
+        return resT
+      }
+    }
+
+
+    return resT
+  }
+
+  const run = flow(
+    silentRun,
+    mapTR(r => {
+      r.forEach(([tr, value]) => {
+        tr.write(value)
+      })
+      notifyDeps({ dependencies } as unknown as _Reactive, NotificationType.UPDATE)
+      return r.at(-1)![1]
+    }),
+  )
+
+  const tr: ReactiveTransaction = {
+    run,
+    // @ts-expect-error TODO: resolve inner typing
+    silentRun,
+    dependencies,
+  }
+
+  return tr
 }
 
 /**
@@ -275,13 +670,13 @@ function derive<V, V2>(
   _value_: Reactive<V>,
   fn: (value: V) => V2,
   props?: DeriveProps,
-): ReactiveDerivation<V2>
+): ReactiveDerivation<V2, [V]>
 // @ts-expect-error TS does not support high-kinded types
-function derive<Vs extends NonEmptyArray<any>, V2>(
+function derive<Vs extends Array<any>, V2>(
   _values_: { [K in keyof Vs]: Reactive<Vs[K]> },
   fn: (...values: Vs) => V2,
   props?: DeriveProps,
-): ReactiveDerivation<V2>;
+): ReactiveDerivation<V2, Vs>;
 function derive<V, V2>(
   _v_: Reactive<V> | NonEmptyArray<Reactive<any>>,
   fn: ((value: V) => V2) | ((...values: any[]) => V2),
@@ -317,16 +712,14 @@ function derive<V, V2>(
       notifyDeps(this, NotificationType.SOURCE_DESTROYED)
     },
     _cache: nullCache,
+    // @ts-expect-error TODO: fix encapsulation
+    fn,
     priority: props?.priority ?? priorities.base,
     dependencies: new PriorityPool(),
     value() {
-      if (this._cache !== nullCache) {
-        return this._cache
-      }
-
       const result = applyFn()
-      this._cache = result
 
+      this._cache = result
       return result
     },
   }
@@ -444,8 +837,23 @@ export const Fluid = {
   derive,
   destroy,
   read,
+  peek,
   write,
   listen,
+
+  transaction: {
+    write: writeT,
+    compose: composeT,
+
+    isResolved,
+    isRejected,
+    mapR: mapTR,
+    mapF: mapTF,
+    fold: foldT,
+
+    resolved,
+    rejected,
+  },
 
   priorities,
 }
