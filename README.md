@@ -8,7 +8,7 @@ Zero-dependency library for creating reactive systems with maximum control.
 
 - [Theory behind](#theory-behind)
 - [Implementation](#implementation)
-  - [Algebraic data type](#algebraic-data-type)
+  - [Reactive type](#reactive-type)
   - [Order of evaluation](#order-of-evaluation)
     - [Control of order](#control-of-order)
     - [How is that can be usefull?](#how-is-that-can-be-usefull)
@@ -21,7 +21,8 @@ Zero-dependency library for creating reactive systems with maximum control.
   - [Transactional write](#transactional-write)
   - [Composing transactions](#composing-transactions)
     - [No changes applied until entire transaction is completed](#no-changes-applied-until-entire-transaction-is-completed)
-      - [Transaction context and Fluid.peek](#transaction-context-and-fluidpeek)
+    - [No changes applied if any transaction is rejected](#no-changes-applied-if-any-transaction-is-rejected)
+    - [Transaction context and Fluid.peek](#transaction-context-and-fluidpeek)
 - [Documentation](#documentation)
   - [Fluid.val](#fluidval)
   - [Fluid.derive](#fluidderive)
@@ -71,6 +72,21 @@ name = "George"
 
 print name // George
 ```
+
+However, every reactive system also has some corresponding characteristics, in
+order to define how it behaves. Here is the list of them, along with how they
+are implemented in `Fluid`:
+
+- Execution flow: **Synchronous**
+- Change propagation: **Push-Based**
+- Update process: **Dataflow**
+- Dependency graph: **Explicitly defined by the programmer(data flow differentiation)**
+- Cycle dependencies: **Not handled automatically**
+- Transactions: **Fully supported**
+- Evaluation:
+    - [derivations](#fluidderive): **Lazy**
+    - [listeners](#fluidlisten): **Proactive**
+- Determinism: **Non-deterministic due to caching and laziness**
 
 ## Implementation
 
@@ -139,9 +155,9 @@ Otherwise some clarification would be applied, rather it `derive` or a `value`.
 
 Let's dig into each concept applied to the `Fluid`:
 
-### Algebraic data type
+### Reactive type
 
-Any reactive entity is an algebraic data type. It means that it can't be used
+Any reactive entity is a type constructor. It means that it can't be used
 as a plain value, but rather it's a \_container\_ of *something*.
 
 Same as you treat a `Promise`. You can't read the value under the promise
@@ -557,6 +573,29 @@ const tr = Fluid.transaction.compose(
 )
 ```
 
+#### No changes applied if any of transactions rejected
+
+```typescript
+const _a_ = Fluid.val("a")
+const _b_ = Fluid.val("b")
+const _c_ = Fluid.val("c")
+
+Fluid.listen(_a_, console.log)
+Fluid.listen(_b_, console.log)
+Fluid.listen(_c_, console.log)
+
+const tr = Fluid.transaction.compose(
+    Fluid.transaction.write(_a_, "A", "a"),
+    Fluid.transaction.write(_b_, () => Fluid.transaction.rejected("error"), "b"),
+    Fluid.transaction.write(_c_, "C", "c"),
+)
+
+tr.run()
+
+console.log(Fluid.read(_a_)) // logs: 'a' // Wasn't changed
+// No console logs from `listen` reactions
+```
+
 It's nice since this allow us to reject the whole transaction in case if one of
 chain was rejected, but it raises two questions:
 
@@ -565,7 +604,7 @@ chain was rejected, but it raises two questions:
 
 Here is the answers:
 
-##### Transaction context and Fluid.peek
+#### Transaction context and Fluid.peek
 
 During execution of actions, you have an access to the `ctx` parameter, which is
 the second parameter of the handler you passing to `Fluid.transaction.write`.
