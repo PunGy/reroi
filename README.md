@@ -9,6 +9,7 @@ Zero-dependency library for creating reactive systems with maximum control.
 - [Theory behind](#theory-behind)
 - [Implementation](#implementation)
   - [Reactive type](#reactive-type)
+    - [High-order reactive entities](#high-order-reactive-entities)
   - [Order of evaluation](#order-of-evaluation)
     - [Control of order](#control-of-order)
     - [How is that can be usefull?](#how-is-that-can-be-usefull)
@@ -84,9 +85,9 @@ are implemented in `Fluid`:
 - Cycle dependencies: **Not handled automatically**
 - Transactions: **Fully supported**
 - Evaluation:
-    - [derivations](#fluidderive): **Lazy**
-    - [listeners](#fluidlisten): **Proactive**
-- Determinism: **Non-deterministic due to caching and laziness**
+  - [derivations](#fluidderive): **Lazy**
+  - [listeners](#fluidlisten): **Proactive**
+- Determinism: **Deterministic in practise. But might be non-deterministic due to caching and laziness**.
 
 ## Implementation
 
@@ -104,9 +105,16 @@ explicit and clean as it can be. Nothing should be happend magically.
 Nothing should be out of your control. When you read the code of the system,
 the behaviour written in the code should be obvious for the reader.
 
-The key features of `Fluid`: reactive entities are Algebraic Data Types;
-No side-effect subscription - you subscribed to the things that explicitly enlisted;
-Control of execution order - you can manipulate when your reaction would be recalculated.
+The key features of `Fluid`:
+
+- Reactive entities are [Type Constructors](#reactive-type).
+- No side-effect subscription - you subscribed to the things that explicitly
+enlisted as a dependency.
+- [Control of execution order](#order-of-evaluation) - you can manipulate when
+your reaction would be recalculated.
+- Full-featured [Transactions](#transactions) - combine together computations, reject if
+something went wrong.
+- [High-order reactive entities](#high-order-reactive-entities).
 
 Let's dive in! Here is the implementation of the reactive system of an example in `Fluid`:
 
@@ -206,6 +214,49 @@ In `Fluid` nothing happend **implicitely**.
 - When you read with the `Fluid.read`, it is never creates a subscription.
 - When you want to subscribe to changes, you need to pass a reactive entities
 as a dependency to `Fluid.derive` or `Fluid.listen`.
+
+#### High-order reactive entities
+
+Due being just a type constructor, it is possible to have a `reactive entity` as
+a **value of** another `reactive entity`! It can open to you a huge variaties of
+possibilities, and one of them: [dynamic dependencies](https://en.wikipedia.org/wiki/Reactive_programming#Static_or_dynamic)!
+
+Dynamic means that you can change the list of you dependencies **during
+execution of the programm**. Here is how:
+
+Imagine a case: you have a `_son_` reactive object. While it is below the
+`_age_` of `18`, he listens to parents: `_mommy_` and `_daddy_`. But once he
+reaches the `18` - he can speak for it's own, as a `_matureSon_`.
+
+```typescript
+const _mommy_ = Fluid.val("Eat a breakfast")
+const _daddy_ = Fluid.val("Go to school")
+
+const _age_ = Fluid.val(10)
+
+const _matureSon_ = Fluid.val("...")
+const _youngSon_ = Fluid.derive([_mommy_, _daddy_], (mommy, daddy) => `Mommy said: "${mommy}", Daddy said: "${daddy}"`)
+
+const _son_ = Fluid.derive(
+    _age_,
+    age => age >= 18
+            ? _matureSon_
+            : _youngSon_
+)
+
+// You should doubly unwrap the value in order to read it
+Fluid.read(Fluid.read(_son_)) // Mommy said: "Eat a breakfast", Daddy said: "Go to school"
+
+Fluid.write(_age_, 20)
+
+Fluid.read(Fluid.read(_son_)) // ...
+Fluid.write(Fluid.read(_son_), "I am a musician")
+Fluid.read(Fluid.read(_son_)) // I am a musician
+```
+
+Well, it is kinda inefficient example, but that's in favor of simplicity. In a
+real world system, be carefull with garbage utilisation and proper dependency
+unsubrscribing, with the [Fluid.destroy](#fluiddestroy).
 
 ### Order of evaluation
 
@@ -445,9 +496,8 @@ it exists only for a dependency.
 
 Normally, you don't need to tweak the priority (well, because usually you
 deriving from something that is already derived, and in that case it just would
-happen after). But, if you come to conclusion that it would be helpfull to you
-
-- go and try it!
+happen after). But, if you come to conclusion that it would be
+helpfull to you - go and try it!
 
 ## Transactions
 
