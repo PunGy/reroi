@@ -14,8 +14,10 @@ type NonEmptyArray<V> = { [0]: V } & Array<V>
 
 // Utilities // Priorities
 
-const _rVal = Symbol("r_val")
-const _rDerive = Symbol("r_derive")
+const _rval = Symbol("rval")
+const _rder = Symbol("rder")
+const _readable = Symbol("readable")
+const _writable = Symbol("writable")
 
 enum NotificationType {
   UPDATE,
@@ -189,15 +191,19 @@ export class PriorityPool extends SparseArray<Pool> {
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export interface ReactiveValue<V> {
-  __tag: typeof _rVal;
+  /** @deprecated Exists only for types */
+  __value: V;
+  __readable: typeof _readable;
+  __writable: typeof _writable;
 }
 
 export interface ReactiveDerivation<V, D extends Array<unknown> = Array<unknown>> {
-  __tag: typeof _rDerive;
   /** @deprecated Exists only for types */
-  __meta_value: V;
+  __value: V;
   /** @deprecated Exists only for types */
-  __meta_dependencies: D,
+  __readable: typeof _readable;
+  /** @deprecated Exists only for types */
+  __meta_dependencies?: D,
 }
 
 export type Reactive<V = unknown> = ReactiveValue<V> | ReactiveDerivation<V>
@@ -232,10 +238,12 @@ interface Dependable {
 }
 
 interface _ReactiveValue<V> extends ReactiveValue<V>, Dependable {
+  __tag: typeof _rval,
   value: V;
 }
 
 interface _ReactiveDerivation<V, D extends Array<unknown> = Array<unknown>> extends ReactiveDerivation<V, D>, Dependable {
+  __tag: typeof _rder,
   _destroy(): void;
   _cache: (typeof nullCache) | V;
   priority: Priority;
@@ -257,12 +265,12 @@ interface _ReactiveTransaction<R, E, C, ID extends string> extends ReactiveTrans
 function isVal<V>(_value_: Reactive<V>): _value_ is _ReactiveValue<V>
 function isVal(smth: unknown): false
 function isVal<V>(_value_: Reactive<V> | any): _value_ is _ReactiveValue<V> {
-  return typeof _value_ === "object" && _value_ !== null && "__tag" in _value_ && _value_.__tag === _rVal
+  return typeof _value_ === "object" && _value_ !== null && "__tag" in _value_ && _value_.__tag === _rval
 }
 function isDerive<V>(_value_: Reactive<V>): _value_ is _ReactiveDerivation<V>
 function isDerive(smth: unknown): false
 function isDerive<V>(_value_: Reactive<V> | any): _value_ is _ReactiveDerivation<V> {
-  return typeof _value_ === "object" && _value_ !== null && "__tag" in _value_ && _value_.__tag === _rDerive
+  return typeof _value_ === "object" && _value_ !== null && "__tag" in _value_ && _value_.__tag === _rder
 }
 
 const notifyDeps = (_r_: _Reactive, type: NotificationType) => {
@@ -294,8 +302,8 @@ const read = <V>(_reactive_: Reactive<V>): V => {
   throw new Error("Fluid: you can read only reactive entities!")
 }
 
-const peek = <R extends ReactiveDerivation<unknown>>(_derive_: R, dependencies: R["__meta_dependencies"]): R["__meta_value"] => {
-  return (_derive_ as unknown as _ReactiveDerivation<R["__meta_value"], R["__meta_dependencies"]>)
+const peek = <R extends ReactiveDerivation<unknown>>(_derive_: R, dependencies: NonNullable<R["__meta_dependencies"]>): R["__value"] => {
+  return (_derive_ as unknown as _ReactiveDerivation<R["__value"], NonNullable<R["__meta_dependencies"]>>)
     .fn(...dependencies)
 }
 
@@ -327,7 +335,7 @@ function write<A>(
   newValue: A | ((aVal: A) => A),
   props?: { literateFn?: boolean },
 ): ReactiveValue<A> {
-  if (_value_.__tag !== _rVal) {
+  if (!isVal(_value_)) {
     throw new Error("Fluid: You can write only to ReactiveValue created with Fluid.val!!!")
   }
 
@@ -392,7 +400,7 @@ function writeT<A, E, C, ID extends string>(
   newValue: A | ((aVal: A, context: C) => TransactionState<A, E>),
   id?: ID,
 ): ReactiveTransaction<A, E, C, ID> {
-  if (_value_.__tag !== _rVal) {
+  if (!isVal(_value_)) {
     throw new Error("Fluid: You can write only to ReactiveValue created with Fluid.val!!!")
   }
   const _v_ = _value_ as _ReactiveValue<A>
@@ -652,7 +660,7 @@ const destroy = (_derive_: ReactiveDerivation<unknown>) => {
 // Reactive // val
 
 const val = <V>(value: V): ReactiveValue<V> => ({
-  __tag: _rVal,
+  __tag: _rval,
   value,
   dependencies: new PriorityPool(),
 }) as _ReactiveValue<V>
@@ -703,7 +711,7 @@ function derive<V, V2>(
   let applyFn = mkApplier()
 
   const derived: _ReactiveDerivation<V2> = {
-    __tag: _rDerive,
+    __tag: _rder,
     _destroy() {
       sources.forEach(source => {
         source.dependencies.get(this.priority)!.delete(this)
