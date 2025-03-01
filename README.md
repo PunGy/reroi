@@ -333,8 +333,8 @@ const _c_ = Fluid.derive(
 )
 
 const _d_ = Fluid.derive(
-  _a_,
-  () => Fluid.read(_b_) + Fluid.read(_c_),
+  [_b_, _c_],
+  (b, c) => b + c,
 )
 ```
 
@@ -635,9 +635,9 @@ Fluid.listen(_b_, console.log)
 Fluid.listen(_c_, console.log)
 
 const tr = Fluid.transaction.compose(
-    Fluid.transaction.write(_a_, "A", "a"),
-    Fluid.transaction.write(_b_, () => Fluid.transaction.rejected("error"), "b"),
-    Fluid.transaction.write(_c_, "C", "c"),
+    Fluid.transaction.write(_a_, "A"),
+    Fluid.transaction.write(_b_, () => Fluid.transaction.rejected("error")),
+    Fluid.transaction.write(_c_, "C"),
 )
 
 tr.run()
@@ -695,10 +695,10 @@ const addPerson = (name, surname) => (
     )
 )
 
-addPerson("Oda", "Nabunaga").run()
+addPerson("Oda", "Nobunaga").run()
 
 console.log(
-    Fluid.read(_messagePool_).at(-1) // The user "Oda Nabunaga" has been added!
+    Fluid.read(_messagePool_).at(-1) // The user "Oda Nobunaga" has been added!
 )
 ```
 
