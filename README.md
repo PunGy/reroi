@@ -256,7 +256,7 @@ Fluid.read(Fluid.read(_son_)) // I am a musician
 
 Well, it is kinda inefficient example, but that's in favor of simplicity. In a
 real world system, be carefull with garbage utilisation and proper dependency
-unsubrscribing, with the [Fluid.destroy](#fluiddestroy).
+unsubscribing with [Fluid.destroy](#fluiddestroy).
 
 ### Order of evaluation
 
@@ -292,7 +292,7 @@ always spread a message to the peers. It means you should avoid cycles:
 const _isAhead_ = Fluid.derive(_seconds_, ...) // Ok
 const _isAhead_ = Fluid.derive(_ahead_, ...) // Ok
 
-const _isAhead_ = Fluid.derive([_seconds_, _ahead_], ...) // Bad
+const _isAhead_ = Fluid.derive([_seconds_, _ahead_], ...) // Bad, _ahead_ is already subscribed to _seconds_
 ```
 
 #### Control of order
