@@ -543,6 +543,7 @@ const _colorChannel_ = Fluid.val(0)
 
 const setColorChannel = (val: number) => {
     return Fluid.transaction.write(
+        _colorChannel_,
         () => {
             return val < 0 || val > 255
                 ? Fluid.transaction.rejected(`Value should be between 0 and 255! Got: ${val}`)
