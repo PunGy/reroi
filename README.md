@@ -383,13 +383,13 @@ const _c_ = Fluid.derive(
 )
 
 const _d_ = Fluid.derive(
-  _a_, ..., { priority: 1 }
+  _a_, ..., { priority: -1 }
 )
 
-// Highest
+// Highest/Lowest special priorities
 const _d_ = Fluid.derive(
   _a_, ...,
-  { priority: Fluid.priorities.highest }
+  { priority: Fluid.priorities.lowest }
 )
 
 // Explicit chain of priorities
