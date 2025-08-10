@@ -189,7 +189,7 @@ export class PriorityPool extends SparseArray<Pool> {
 
 // Public
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+
 export interface ReactiveValue<V> {
   /** @deprecated Exists only for types */
   __value: V;
@@ -221,10 +221,10 @@ export type TransactionRejected<E> = {
 export type TransactionState<R, E> = TransactionResolved<R> | TransactionRejected<E>
 
 export interface ReactiveTransaction<
-  R = unknown,
-  E = unknown,
-  C = unknown,
-  ID extends string = string
+  R = unknown, // Might be resolved with
+  E = unknown, // Might be rejected with
+  C = {}, // Accululated context
+  ID extends string = string // id
 > {
   run(): TransactionState<R, E>;
   id?: ID,
@@ -253,11 +253,11 @@ interface _ReactiveDerivation<V, D extends Array<unknown> = Array<unknown>> exte
 
 type _Reactive<V = unknown> = _ReactiveValue<V> | _ReactiveDerivation<V>
 
-interface _ReactiveTransaction<R, E, C, ID extends string> extends ReactiveTransaction<R, E, C, ID>, Dependable {
+interface _ReactiveTransaction<R, E, C = {}, ID extends string = string> extends ReactiveTransaction<R, E, C, ID>, Dependable {
   // Run, but does not notifies dependencies, nor writing a value
   silentRun(ctx: C): TransactionState<R, E>;
-  // write a value
-  write(value: R): void;
+  // write a value, if no writer - it is a composable transaction
+  write?(value: R): void;
 }
 
 // Utilities // Helpers
@@ -385,17 +385,17 @@ const runTransaction = <A, E, C>(
     : resolved(newValue)
 }
 
-function writeT<A, E, C, ID extends string>(
-  _value_: ReactiveValue<A>,
-  newValue: (aVal: A, context: C) => TransactionState<A, E>,
+function writeT<R, E, C = {}, ID extends string = string>(
+  _value_: ReactiveValue<R>,
+  newValue: (aVal: R, context: C) => TransactionState<R, E>,
   id?: ID
-): ReactiveTransaction<A, E, C, ID>;
-function writeT<A, _, C, ID extends string>(
+): ReactiveTransaction<R, E, C, ID>;
+function writeT<A, _, C = {}, ID extends string = string>(
   _value_: ReactiveValue<A>,
   newValue: A,
   id?: ID
 ): ReactiveTransaction<A, never, C, ID>;
-function writeT<A, E, C, ID extends string>(
+function writeT<A, E, C = {}, ID extends string = string>(
   _value_: ReactiveValue<A>,
   newValue: A | ((aVal: A, context: C) => TransactionState<A, E>),
   id?: ID,
@@ -410,7 +410,7 @@ function writeT<A, E, C, ID extends string>(
       return pipe(
         runTransaction(_v_, newValue, this.context),
         mapTR(v => {
-          this.write(v)
+          this.write!(v)
           notifyDeps(_v_, NotificationType.UPDATE)
           return v
         }),
@@ -596,7 +596,7 @@ function composeT<
   }
 
   const silentRun = <C extends Record<string, unknown>>(ctx: C = {} as C) => {
-    let resT: TransactionState<Array<[_ReactiveTransaction<unknown, unknown, unknown, string>, unknown]>, unknown> = resolved([])
+    let resT: TransactionState<Array<[_ReactiveTransaction<unknown, unknown, {}, string>, unknown]>, unknown> = resolved([])
     const context: Record<string, unknown> = ctx
 
     for (const tr of _transactions) {
@@ -618,26 +618,34 @@ function composeT<
       }
     }
 
-
     return resT
+  }
+
+  function write(entries: Array<[_ReactiveTransaction<unknown, unknown>, unknown]>) {
+    entries.forEach(([tr, value]) => {
+      if (tr.write) {
+        tr.write(value)
+      } else {
+        if (!Array.isArray(value)) throw new Error("Broken transaction composition")
+        write(value)
+      }
+    })
   }
 
   const run = flow(
     silentRun,
     mapTR(r => {
-      r.forEach(([tr, value]) => {
-        tr.write(value)
-      })
+      write(r)
       notifyDeps({ dependencies } as unknown as _Reactive, NotificationType.UPDATE)
       return r.at(-1)![1]
     }),
   )
 
-  const tr: ReactiveTransaction = {
+  const tr: _ReactiveTransaction<unknown, unknown> = {
     run,
-    // @ts-expect-error TODO: resolve inner typing
     silentRun,
     dependencies,
+    context: {},
   }
 
   return tr

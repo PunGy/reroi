@@ -273,6 +273,51 @@ describe("Fluid", () => {
         expect(Fluid.transaction.isResolved(res) && res.value === "C").toBeTruthy()
       })
 
+      it("compose composition", () => {
+        const _a_ = Fluid.val("a")
+        const _b_ = Fluid.val("b")
+        const _c_ = Fluid.val("c")
+
+        const _d_ = Fluid.val("d")
+        const _e_ = Fluid.val("e")
+        const _f_ = Fluid.val("f")
+
+        const fn = vi.fn()
+
+        const _combine_ = Fluid.derive(
+          [_a_, _b_, _c_, _d_, _e_, _f_],
+          (a, b, c, d, e, f) => a + b + c + d + e + f,
+        )
+
+        Fluid.listen(_combine_, (res) => {
+          fn(res)
+        })
+
+        const tr1 = Fluid.transaction.compose(
+          Fluid.transaction.write(_a_, "A"),
+          Fluid.transaction.write(_b_, "B"),
+          Fluid.transaction.write(_c_, "C"),
+        )
+
+        const add = (x: string) => Fluid.transaction.resolved(x + "1")
+        const tr2 = Fluid.transaction.compose(
+          Fluid.transaction.write(_d_, add),
+          Fluid.transaction.write(_e_, add),
+          Fluid.transaction.write(_f_, add),
+        )
+
+        const tr = Fluid.transaction.compose(
+          tr1,
+          tr2,
+        )
+
+        const res = tr.run()
+
+        expect(fn).toHaveBeenCalledOnce()
+        expect(fn).toHaveBeenCalledWith("ABCd1e1f1")
+        expect(Fluid.transaction.isResolved(res)).toBeTruthy()
+      })
+
       it("does not modifies anything until transaction not fullfilled", () => {
         const _a_ = Fluid.val("a")
         const _b_ = Fluid.val("b")
@@ -341,6 +386,45 @@ describe("Fluid", () => {
         expect(fn).not.toHaveBeenCalled()
         expect(Fluid.transaction.isRejected(res) && res.error === "error").toBeTruthy()
       })
+
+      it("compose composition and does not write if something was rejected", () => {
+        const _a_ = Fluid.val("a")
+        const _b_ = Fluid.val("b")
+        const _c_ = Fluid.val("c")
+        const _d_ = Fluid.val("d")
+
+        const fn = vi.fn()
+
+        const _combine_ = Fluid.derive(
+          [_a_, _b_, _c_, _d_],
+          (a, b, c, d) => a + b + c + d,
+        )
+
+        Fluid.listen(_combine_, (res) => {
+          fn(res)
+        })
+
+        const tr1 = Fluid.transaction.compose(
+          Fluid.transaction.write(_a_, "A"),
+          Fluid.transaction.write(_b_, "B"),
+        )
+
+        const tr2 = Fluid.transaction.compose(
+          Fluid.transaction.write(_c_, () => Fluid.transaction.rejected("alarm")),
+          Fluid.transaction.write(_d_, "D"),
+        )
+
+        const tr = Fluid.transaction.compose(
+          tr1,
+          tr2,
+        )
+
+        const res = tr.run()
+
+        expect(fn).not.toHaveBeenCalledOnce()
+        expect(Fluid.read(_a_)).toBe("a")
+        expect(Fluid.transaction.isRejected(res)).toBeTruthy()
+      })
     })
   })
 
@@ -398,6 +482,7 @@ describe("Fluid", () => {
 
       expect(fn).toHaveBeenCalledWith(false)
     })
+
     it("read _b_ only after change of _a_", () => {
       const _a_ = Fluid.val("a")
       const _b_ = Fluid.val("b")
@@ -430,6 +515,7 @@ describe("Fluid", () => {
       expect(fn).toBeCalledWith("AB")
       expect(Fluid.read(_c_)).toBe("AB")
     })
+
     it("properly sorts large number of priorities", () => {
       const _msg_ = Fluid.val("")
       const fn = vi.fn()
