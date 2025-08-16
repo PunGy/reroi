@@ -1,7 +1,7 @@
 {
   "name": "reactive-fluid",
   "private": false,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Library for creating reactive systems with maximum control.",
   "license": "MIT",
   "author": "Maxim Iakovlev <max.yakovlev555@gmail.com>",
