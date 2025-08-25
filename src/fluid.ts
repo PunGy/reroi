@@ -431,44 +431,6 @@ function writeT<A, E, C = {}, ID extends string = string>(
   return tr as ReactiveTransaction<A, E, C, ID>
 }
 
-type ResolvedField<T extends TransactionState<unknown, unknown>> = T extends TransactionSuccess<unknown> ? T["value"] : never
-type RejectedField<T extends TransactionState<unknown, unknown>> = T extends TransactionError<unknown> ? T["error"] : never
-type ExtractResolved<T extends ReactiveTransaction> = ResolvedField<ReturnType<T["run"]>>
-type ExtractRejected<T extends ReactiveTransaction> = RejectedField<ReturnType<T["run"]>>
-
-type RemoveUnknown<T> = T extends unknown ? unknown extends T ? never : T : T;
-
-/**
-There was an attempt to not use function overloading and with following type constructor
-It works correctly, but unfortunatelly I can't combine it with type infering :(
-
-type ComposeContext<TRs extends Array<ReactiveTransaction>, Acc extends Array<ReactiveTransaction> = []> =
-  Acc extends [...infer _, infer Processed]
-    ? Processed extends ReactiveTransaction
-      ? TRs extends [infer Processing, ...infer Rest]
-        ? Processing extends ReactiveTransaction
-          ? ComposeContext< Rest
-                          , [ ...Acc
-                            , ReactiveTransaction< ExtractResolved<Processing>
-                                                 , ExtractFailed<Processing>
-                                                 , Processed["id"] extends undefined ? {} : Processed["context"] & { [K in NonNullable<Processed["id"]>]: ExtractResolved<Processed> }
-                                                 , NonNullable<Processing["id"]>>]>
-          : never
-        : Acc
-      : never
-    : Acc
-
-type t = ComposeContext<
-  [
-    ReactiveTransaction<2, -1, unknown, "b">,
-    ReactiveTransaction<3, -1, unknown, "c">,
-    ReactiveTransaction<4, -1, unknown, "d">,
-  ],
-  [ReactiveTransaction<1, -1, {}, "a">]
->
-*/
-
-
 /**
  * Composing transaction into one transaction
  */
