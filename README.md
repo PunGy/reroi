@@ -632,16 +632,16 @@ Folds or reduces the transaction result into a single value.
 import { Fluid } from 'reactive-fluid'
 
 const _a_ = Fluid.val('a')
-const trR = Fluid.transaction.write(_a_, () => Fluid.transaction.success('A'))
-const trF = Fluid.transaction.write(_a_, () => Fluid.transaction.error('A'))
+const trS = Fluid.transaction.write(_a_, () => Fluid.transaction.success('A'))
+const trE = Fluid.transaction.write(_a_, () => Fluid.transaction.error('A'))
 
 const toBoolean = Fluid.transaction.fold(
-    () => true,  // on success
     () => false, // on error 
+    () => true,  // on success
 )
 
-console.log(toBoolean(trR.run())) // true
-console.log(toBoolean(trF.run())) // false
+console.log(toBoolean(trS.run())) // true
+console.log(toBoolean(trE.run())) // false
 ```
 
 ### Composing transactions

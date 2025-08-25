@@ -371,7 +371,7 @@ const mapTE = <R, E, E2>(fn: (a: E) => E2) => (transaction: TransactionState<R, 
   return isError(transaction) ? error(fn(transaction.error)) : transaction
 }
 
-const foldT = <R, E, B>(onSuccess: (r: R) => B, onError: (e: E) => B) => (transaction: TransactionState<R, E>): B => {
+const foldT = <R, E, B>(onError: (e: E) => B, onSuccess: (r: R) => B) => (transaction: TransactionState<R, E>): B => {
   return isSuccess(transaction)
     ? onSuccess(transaction.value)
     : onError(transaction.error)
