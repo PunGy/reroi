@@ -145,7 +145,7 @@ export class PriorityPool extends SparseArray<Pool> {
    * so the resulting pool is only consists of unique messages
    *
    * Dependencies, in case if they are to the same target,
-   * will be resolved in the following way: the highest priority would take a lead
+   * will be succeeded in the following way: the highest priority would take a lead
    */
   static merge(p1: PriorityPool, p2: PriorityPool) {
     const result = new PriorityPool()
@@ -208,21 +208,21 @@ export interface ReactiveDerivation<V, D extends Array<unknown> = Array<unknown>
 
 export type Reactive<V = unknown> = ReactiveValue<V> | ReactiveDerivation<V>
 
-const _resolvedTransaction = Symbol("resolvedTransaction")
-const _rejectedTransaction = Symbol("resolvedTransaction")
-export type TransactionResolved<R> = {
-  __tag: typeof _resolvedTransaction;
+const _successTransaction = Symbol("successTransaction")
+const _errorTransaction = Symbol("errorTransaction")
+export type TransactionSuccess<R> = {
+  __tag: typeof _successTransaction;
   value: R;
 }
-export type TransactionRejected<E> = {
-  __tag: typeof _rejectedTransaction;
+export type TransactionError<E> = {
+  __tag: typeof _errorTransaction;
   error: E;
 }
-export type TransactionState<R, E> = TransactionResolved<R> | TransactionRejected<E>
+export type TransactionState<R, E> = TransactionSuccess<R> | TransactionError<E>
 
 export interface ReactiveTransaction<
-  R = unknown, // Might be resolved with
-  E = unknown, // Might be rejected with
+  R = unknown, // Might be succeeded with
+  E = unknown, // Might be error with
   C = {}, // Accululated context
   ID extends string = string // id
 > {
@@ -348,33 +348,33 @@ function write<A>(
 /////////////////
 // Transactions
 
-const resolved = <R>(value: R): TransactionResolved<R> => ({
-  __tag: _resolvedTransaction,
+const success = <R>(value: R): TransactionSuccess<R> => ({
+  __tag: _successTransaction,
   value,
 })
-const rejected = <E>(error: E): TransactionRejected<E> => ({
-  __tag: _rejectedTransaction,
+const error = <E>(error: E): TransactionError<E> => ({
+  __tag: _errorTransaction,
   error,
 })
-function isResolved<R, E>(transaction: TransactionState<R, E>): transaction is TransactionResolved<R> {
-  return transaction.__tag === _resolvedTransaction
+function isSuccess<R, E>(transaction: TransactionState<R, E>): transaction is TransactionSuccess<R> {
+  return transaction.__tag === _successTransaction
 }
-function isRejected<R, E>(transaction: TransactionState<R, E>): transaction is TransactionRejected<E> {
-  return transaction.__tag === _rejectedTransaction
-}
-
-
-const mapTR = <R, R2, E>(fn: (a: R) => R2) => (transaction: TransactionState<R, E>): TransactionState<R2, E> => {
-  return isResolved(transaction) ? resolved(fn(transaction.value)) : transaction
-}
-const mapTF = <R, E, E2>(fn: (a: E) => E2) => (transaction: TransactionState<R, E>): TransactionState<R, E2> => {
-  return isRejected(transaction) ? rejected(fn(transaction.error)) : transaction
+function isError<R, E>(transaction: TransactionState<R, E>): transaction is TransactionError<E> {
+  return transaction.__tag === _errorTransaction
 }
 
-const foldT = <R, E, B>(onResolved: (r: R) => B, onRejected: (e: E) => B) => (transaction: TransactionState<R, E>): B => {
-  return isResolved(transaction)
-    ? onResolved(transaction.value)
-    : onRejected(transaction.error)
+
+const mapTS = <R, R2, E>(fn: (a: R) => R2) => (transaction: TransactionState<R, E>): TransactionState<R2, E> => {
+  return isSuccess(transaction) ? success(fn(transaction.value)) : transaction
+}
+const mapTE = <R, E, E2>(fn: (a: E) => E2) => (transaction: TransactionState<R, E>): TransactionState<R, E2> => {
+  return isError(transaction) ? error(fn(transaction.error)) : transaction
+}
+
+const foldT = <R, E, B>(onSuccess: (r: R) => B, onError: (e: E) => B) => (transaction: TransactionState<R, E>): B => {
+  return isSuccess(transaction)
+    ? onSuccess(transaction.value)
+    : onError(transaction.error)
 }
 
 const runTransaction = <A, E, C>(
@@ -382,7 +382,7 @@ const runTransaction = <A, E, C>(
   newValue: A | ((aVal: A, context: C) => TransactionState<A, E>), context: C) => {
   return typeof newValue === "function"
     ? (newValue as (a: A, context: C) => TransactionState<A, E>)(read(_v_), context)
-    : resolved(newValue)
+    : success(newValue)
 }
 
 function writeT<R, E, C = {}, ID extends string = string>(
@@ -409,7 +409,7 @@ function writeT<A, E, C = {}, ID extends string = string>(
     run() {
       return pipe(
         runTransaction(_v_, newValue, this.context),
-        mapTR(v => {
+        mapTS(v => {
           this.write!(v)
           notifyDeps(_v_, NotificationType.UPDATE)
           return v
@@ -431,8 +431,8 @@ function writeT<A, E, C = {}, ID extends string = string>(
   return tr as ReactiveTransaction<A, E, C, ID>
 }
 
-type ResolvedField<T extends TransactionState<unknown, unknown>> = T extends TransactionResolved<unknown> ? T["value"] : never
-type RejectedField<T extends TransactionState<unknown, unknown>> = T extends TransactionRejected<unknown> ? T["error"] : never
+type ResolvedField<T extends TransactionState<unknown, unknown>> = T extends TransactionSuccess<unknown> ? T["value"] : never
+type RejectedField<T extends TransactionState<unknown, unknown>> = T extends TransactionError<unknown> ? T["error"] : never
 type ExtractResolved<T extends ReactiveTransaction> = ResolvedField<ReturnType<T["run"]>>
 type ExtractRejected<T extends ReactiveTransaction> = RejectedField<ReturnType<T["run"]>>
 
@@ -596,14 +596,14 @@ function composeT<
   }
 
   const silentRun = <C extends Record<string, unknown>>(ctx: C = {} as C) => {
-    let resT: TransactionState<Array<[_ReactiveTransaction<unknown, unknown, {}, string>, unknown]>, unknown> = resolved([])
+    let resT: TransactionState<Array<[_ReactiveTransaction<unknown, unknown, {}, string>, unknown]>, unknown> = success([])
     const context: Record<string, unknown> = ctx
 
     for (const tr of _transactions) {
       resT = pipe(
         tr.silentRun(context),
-        mapTR(res => {
-          if (isResolved(resT)) {
+        mapTS(res => {
+          if (isSuccess(resT)) {
             if (tr.id) {
               context[tr.id] = res
             }
@@ -613,7 +613,7 @@ function composeT<
         }),
       )
 
-      if (isRejected(resT)) {
+      if (isError(resT)) {
         return resT
       }
     }
@@ -634,7 +634,7 @@ function composeT<
 
   const run = flow(
     silentRun,
-    mapTR(r => {
+    mapTS(r => {
       write(r)
       notifyDeps({ dependencies } as unknown as _Reactive, NotificationType.UPDATE)
       return r.at(-1)![1]
@@ -874,14 +874,14 @@ export const Fluid = {
     write: writeT,
     compose: composeT,
 
-    isResolved,
-    isRejected,
-    mapR: mapTR,
-    mapF: mapTF,
+    isSuccess,
+    isError,
+    mapS: mapTS,
+    mapE: mapTE,
     fold: foldT,
 
-    resolved,
-    rejected,
+    success,
+    error,
   },
 
   priorities,

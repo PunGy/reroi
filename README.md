@@ -26,16 +26,16 @@ Zero-dependency library for creating reactive systems with maximum control.
     - [Fluid.transaction.write](#fluidtransactionwrite)
     - [ReactiveTransaction](#reactivetransaction)
   - [Helper functions](#helper-functions)
-    - [Fluid.transaction.resolved](#fluidtransactionresolved)
-    - [Fluid.transaction.rejected](#fluidtransactionrejected)
-    - [Fluid.transaction.isResolved](#fluidtransactionisresolved)
-    - [Fluid.transaction.isRejected](#fluidtransactionisrejected)
+    - [Fluid.transaction.success](#fluidtransactionsuccess)
+    - [Fluid.transaction.error](#fluidtransactionerror)
+    - [Fluid.transaction.isSuccess](#fluidtransactionissuccess)
+    - [Fluid.transaction.isError](#fluidtransactioniserror)
     - [Fluid.transaction.mapR](#fluidtransactionmapr)
     - [Fluid.transaction.mapF](#fluidtransactionmapf)
     - [Fluid.transaction.fold](#fluidtransactionfold)
   - [Composing transactions](#composing-transactions)
     - [No changes applied until entire transaction is completed](#no-changes-applied-until-entire-transaction-is-completed)
-    - [No changes applied if any transaction is rejected](#no-changes-applied-if-any-transaction-is-rejected)
+    - [No changes applied if any transaction is error](#no-changes-applied-if-any-transaction-is-error)
     - [Transaction context and Fluid.peek](#transaction-context-and-fluidpeek)
 - [Other Functions](#other-functions)
   - [Fluid.peek](#fluidpeek)
@@ -436,7 +436,7 @@ The function interface for `transaction.write` is complex due to compositional
 transactions:
 
 ```typescript
-type TransactionState<R, E> = TransactionResolved<R> | TransactionRejected<E>
+type TransactionState<R, E> = TransactionSuccess<R> | TransactionError<E>
 type TransactionFN = <R, E, C>(aVal: R, context: C) => TransactionState<R, E>
 
 function writeT<R, E, C = {}, ID extends string = string>(
@@ -477,8 +477,8 @@ executes the transaction.
 
 ```typescript
 export interface ReactiveTransaction<
-  R = unknown, // Might be resolved with
-  E = unknown, // Might be rejected with
+  R = unknown, // Might be success with
+  E = unknown, // Might be error with
 > {
   run(): TransactionState<R, E>;
 }
@@ -496,90 +496,90 @@ expect(Fluid.read(_a_)).toBe('A')
 
 ### Helper functions
 
-#### Fluid.transaction.resolved
+#### Fluid.transaction.success
 
-Use this inside a `TransactionFN` to produce a resolved value to be written to
+Use this inside a `TransactionFN` to produce a success value to be written to
 the `ReactiveValue`.
 
 ```typescript
-type TransactionResolved<R> = { value: R }
-const resolved = <R>(value: R): TransactionResolved<R> => ({
+type TransactionSuccess<R> = { value: R }
+const success = <R>(value: R): TransactionSuccess<R> => ({
 ```
 
 ```typescript
 import { Fluid } from 'reactive-fluid'
 
 const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.resolved('A'))
+const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.success('A'))
 
 tr.run();
 expect(Fluid.read(_a_)).toBe('A')
 ```
 
-#### Fluid.transaction.rejected
+#### Fluid.transaction.error
 
 Use this inside a `TransactionFN` to reject the transaction execution.
 
 ```typescript
-type TransactionRejected<E> = { error: E }
-function rejected<E>(error: E): TransactionRejected<E>
+type TransactionError<E> = { error: E }
+function error<E>(error: E): TransactionError<E>
 ```
 
 ```typescript
 import { Fluid } from 'reactive-fluid'
 
 const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.rejected('A'))
+const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.error('A'))
 
 tr.run();
 expect(Fluid.read(_a_)).toBe('a')
 ```
 
-#### Fluid.transaction.isResolved
+#### Fluid.transaction.isSuccess
 
-Checks whether the transaction result was resolved.
+Checks whether the transaction result was success.
 
 ```typescript
-function isResolved<R, E>(transaction: TransactionState<R, E>): transaction is TransactionResolved<R>
+function isSuccess<R, E>(transaction: TransactionState<R, E>): transaction is TransactionSuccess<R>
 ```
 
 ```typescript
 import { Fluid } from 'reactive-fluid'
 
 const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.resolved('A'))
+const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.success('A'))
 
 const state = tr.run();
-expect(Fluid.transaction.isResolved(state)).toBe(true)
+expect(Fluid.transaction.isSuccess(state)).toBe(true)
 
-if (Fluid.transaction.isResolved(state)) {
+if (Fluid.transaction.isSuccess(state)) {
     console.log(state.value) // 'A'
 }
 ```
 
-#### Fluid.transaction.isRejected
+#### Fluid.transaction.isError
 
-Checks whether the transaction result was rejected.
+Checks whether the transaction result was error.
 
 ```typescript
-function isRejected<R, E>(transaction: TransactionState<R, E>): transaction is TransactionRejected<E>
+function isError<R, E>(transaction: TransactionState<R, E>): transaction is TransactionError<E>
 ```
 
 ```typescript
 import { Fluid } from 'reactive-fluid'
 
 const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.rejected('A'))
+const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.error('A'))
 
 const state = tr.run();
-expect(Fluid.transaction.isRejected(state)).toBe(true)
+expect(Fluid.transaction.isError(state)).toBe(true)
 
-if (Fluid.transaction.isRejected(state)) {
+if (Fluid.transaction.isError(state)) {
     console.log(state.error) // 'A'
 }
 ```
 
-#### Fluid.transaction.mapR
+#### Fluid.transaction.mapS
 
 > The following utilities are optional and provide a more functional
 > programming flavor to Fluid :)
@@ -587,40 +587,40 @@ if (Fluid.transaction.isRejected(state)) {
 > Transaction is essentially an `IO (Either E R)` ADT with Functor and Foldable
 > type classes.
 
-Maps `TransactionResolved<R>` to `TransactionResolved<R2>`. Can be used to
-_peek_ into a resolved transaction's value.
+Maps `TransactionSuccess<R>` to `TransactionSuccess<R2>`. Can be used to
+_peek_ into a success transaction's value.
 
 ```typescript
 import { Fluid } from 'reactive-fluid'
 
 const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.resolved('A'))
+const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.success('A'))
 
-const beautify = Fluid.transaction.mapR((value: string) => `I was resolved with: "${value}"`)
+const beautify = Fluid.transaction.mapS((value: string) => `I was success with: "${value}"`)
 
 const state = beautify(tr.run())
 
-if (Fluid.transaction.isResolved(state)) {
-    console.log(state.value) // I was resolved with: "A"
+if (Fluid.transaction.isSuccess(state)) {
+    console.log(state.value) // I was success with: "A"
 }
 ```
 
-#### Fluid.transaction.mapF
+#### Fluid.transaction.mapE
 
-Maps `TransactionRejected<E>` to `TransactionRejected<E2>`.
+Maps `TransactionError<E>` to `TransactionError<E2>`.
 
 ```typescript
 import { Fluid } from 'reactive-fluid'
 
 const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.rejected('A'))
+const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.error('A'))
 
-const beautify = Fluid.transaction.mapF(error => `I was rejected with: "${error}"`)
+const beautify = Fluid.transaction.mapE(error => `I was rejected with: "${error}"`)
 
 const state = beautify(tr.run())
 
-if (Fluid.transaction.isRejected(state)) {
-    console.log(state.error) // I was rejected with: "A"
+if (Fluid.transaction.isError(state)) {
+    console.log(state.error) // I was error with: "A"
 }
 ```
 
@@ -632,12 +632,12 @@ Folds or reduces the transaction result into a single value.
 import { Fluid } from 'reactive-fluid'
 
 const _a_ = Fluid.val('a')
-const trR = Fluid.transaction.write(_a_, () => Fluid.transaction.resolved('A'))
-const trF = Fluid.transaction.write(_a_, () => Fluid.transaction.rejected('A'))
+const trR = Fluid.transaction.write(_a_, () => Fluid.transaction.success('A'))
+const trF = Fluid.transaction.write(_a_, () => Fluid.transaction.error('A'))
 
 const toBoolean = Fluid.transaction.fold(
-    () => true,  // on resolved
-    () => false, // on rejected 
+    () => true,  // on success
+    () => false, // on error 
 )
 
 console.log(toBoolean(trR.run())) // true
@@ -686,16 +686,16 @@ const tr = Fluid.transaction.compose(
     Fluid.transaction.write(_b_, () => {
         console.log(Fluid.read(_a_)) // a
         console.log(Fluid.read(_A_)) // A
-        return Fluid.transaction.resolved("B")
+        return Fluid.transaction.success("B")
     }),
     Fluid.transaction.write(_c_, () => {
         console.log(Fluid.read(_b_)) // b
-        return Fluid.transaction.resolved("C")
+        return Fluid.transaction.success("C")
     }),
 )
 ```
 
-#### No changes applied if any transaction is rejected
+#### No changes applied if any transaction is error
 
 ```typescript
 import { Fluid } from 'reactive-fluid'
@@ -710,7 +710,7 @@ Fluid.listen(_c_, console.log)
 
 const tr = Fluid.transaction.compose(
     Fluid.transaction.write(_a_, "A"),
-    Fluid.transaction.write(_b_, () => Fluid.transaction.rejected("error")),
+    Fluid.transaction.write(_b_, () => Fluid.transaction.error("error")),
     Fluid.transaction.write(_c_, "C"),
 )
 
@@ -723,7 +723,7 @@ console.log(Fluid.read(_a_)) // logs: 'a' // Wasn't changed
 This allows rejecting the entire transaction if any part fails, but it raises
 questions:
 
-1. How to access new values from previously resolved actions?
+1. How to access new values from previously success actions?
 2. How to compute a derivation's new state?
 
 The answers involve transaction context and `Fluid.peek`.

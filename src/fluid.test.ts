@@ -249,24 +249,24 @@ describe("Fluid", () => {
 
         expect(fn).toHaveBeenCalled()
         expect(Fluid.read(_x_)).toBe(20)
-        expect(Fluid.transaction.isResolved(res) && res.value === 20).toBeTruthy()
+        expect(Fluid.transaction.isSuccess(res) && res.value === 20).toBeTruthy()
       })
 
-      it("does not write the value if transaction was rejected", () => {
+      it("does not write the value if transaction was error", () => {
         const _x_ = Fluid.val(10)
 
         const fn = vi.fn()
         Fluid.listen(_x_, fn)
 
         const tr = Fluid.transaction.write(_x_, () => {
-          return Fluid.transaction.rejected(0)
+          return Fluid.transaction.error(0)
         })
 
         const res = tr.run()
 
         expect(fn).not.toHaveBeenCalled()
         expect(Fluid.read(_x_)).toBe(10)
-        expect(Fluid.transaction.isRejected(res) && res.error === 0).toBeTruthy()
+        expect(Fluid.transaction.isError(res) && res.error === 0).toBeTruthy()
       })
     })
 
@@ -298,7 +298,7 @@ describe("Fluid", () => {
 
         expect(fn).toHaveBeenCalledOnce()
         expect(fn).toHaveBeenCalledWith("ABC")
-        expect(Fluid.transaction.isResolved(res) && res.value === "C").toBeTruthy()
+        expect(Fluid.transaction.isSuccess(res) && res.value === "C").toBeTruthy()
       })
 
       it("compose composition", () => {
@@ -327,7 +327,7 @@ describe("Fluid", () => {
           Fluid.transaction.write(_c_, "C"),
         )
 
-        const add = (x: string) => Fluid.transaction.resolved(x + "1")
+        const add = (x: string) => Fluid.transaction.success(x + "1")
         const tr2 = Fluid.transaction.compose(
           Fluid.transaction.write(_d_, add),
           Fluid.transaction.write(_e_, add),
@@ -343,7 +343,7 @@ describe("Fluid", () => {
 
         expect(fn).toHaveBeenCalledOnce()
         expect(fn).toHaveBeenCalledWith("ABCd1e1f1")
-        expect(Fluid.transaction.isResolved(res)).toBeTruthy()
+        expect(Fluid.transaction.isSuccess(res)).toBeTruthy()
       })
 
       it("does not modifies anything until transaction not fullfilled", () => {
@@ -357,11 +357,11 @@ describe("Fluid", () => {
           Fluid.transaction.write(_a_, "A"),
           Fluid.transaction.write(_b_, () => {
             fn(Fluid.read(_a_))
-            return Fluid.transaction.resolved("B")
+            return Fluid.transaction.success("B")
           }),
           Fluid.transaction.write(_c_, () => {
             fn(Fluid.read(_b_))
-            return Fluid.transaction.resolved("C")
+            return Fluid.transaction.success("C")
           }),
         )
 
@@ -371,7 +371,7 @@ describe("Fluid", () => {
         expect(fn).toHaveBeenNthCalledWith(2, "b")
       })
 
-      it("values of previous resolved transactions can be accessed via context", () => {
+      it("values of previous success transactions can be accessed via context", () => {
         const _a_ = Fluid.val("a")
         const _b_ = Fluid.val("b")
         const _c_ = Fluid.val("c")
@@ -381,8 +381,8 @@ describe("Fluid", () => {
 
         const tr = Fluid.transaction.compose(
           Fluid.transaction.write(_a_, "A", "a"),
-          Fluid.transaction.write(_b_, (_, { a }) => Fluid.transaction.resolved(a + "B"), "b"),
-          Fluid.transaction.write(_c_, (_, { b }) => Fluid.transaction.resolved(b + "C"), "c"),
+          Fluid.transaction.write(_b_, (_, { a }) => Fluid.transaction.success(a + "B"), "b"),
+          Fluid.transaction.write(_c_, (_, { b }) => Fluid.transaction.success(b + "C"), "c"),
         )
 
         tr.run()
@@ -390,7 +390,7 @@ describe("Fluid", () => {
         expect(fn).toHaveBeenCalledWith("ABC")
       })
 
-      it("does not modifies value or notifies dependencies on rejected transaction, and returns an error", () => {
+      it("does not modifies value or notifies dependencies on error transaction, and returns an error", () => {
         const _a_ = Fluid.val("a")
         const _b_ = Fluid.val("b")
         const _c_ = Fluid.val("c")
@@ -402,8 +402,8 @@ describe("Fluid", () => {
 
         const tr = Fluid.transaction.compose(
           Fluid.transaction.write(_a_, "A", "a"),
-          Fluid.transaction.write(_b_, () => Fluid.transaction.rejected("error"), "b"),
-          Fluid.transaction.write(_c_, () => Fluid.transaction.resolved("C"), "c"),
+          Fluid.transaction.write(_b_, () => Fluid.transaction.error("error"), "b"),
+          Fluid.transaction.write(_c_, () => Fluid.transaction.success("C"), "c"),
         )
 
         const res = tr.run()
@@ -412,10 +412,10 @@ describe("Fluid", () => {
         expect(Fluid.read(_b_)).toBe("b")
         expect(Fluid.read(_c_)).toBe("c")
         expect(fn).not.toHaveBeenCalled()
-        expect(Fluid.transaction.isRejected(res) && res.error === "error").toBeTruthy()
+        expect(Fluid.transaction.isError(res) && res.error === "error").toBeTruthy()
       })
 
-      it("compose composition and does not write if something was rejected", () => {
+      it("compose composition and does not write if something was error", () => {
         const _a_ = Fluid.val("a")
         const _b_ = Fluid.val("b")
         const _c_ = Fluid.val("c")
@@ -438,7 +438,7 @@ describe("Fluid", () => {
         )
 
         const tr2 = Fluid.transaction.compose(
-          Fluid.transaction.write(_c_, () => Fluid.transaction.rejected("alarm")),
+          Fluid.transaction.write(_c_, () => Fluid.transaction.error("alarm")),
           Fluid.transaction.write(_d_, "D"),
         )
 
@@ -451,7 +451,7 @@ describe("Fluid", () => {
 
         expect(fn).not.toHaveBeenCalledOnce()
         expect(Fluid.read(_a_)).toBe("a")
-        expect(Fluid.transaction.isRejected(res)).toBeTruthy()
+        expect(Fluid.transaction.isError(res)).toBeTruthy()
       })
     })
   })
@@ -467,7 +467,7 @@ describe("Fluid", () => {
         Fluid.transaction.write(_b_, (_, ctx) => {
           const bigAA = Fluid.peek(_aa_, [ctx.a])
 
-          return Fluid.transaction.resolved(bigAA + "B")
+          return Fluid.transaction.success(bigAA + "B")
         }),
       ).run()
 
@@ -648,10 +648,10 @@ describe("Fluid", () => {
           const finalPriceDiff = Fluid.read(_finalPrice_) - newFinalPrice
 
           if (finalPriceDiff > 1000) {
-            return Fluid.transaction.rejected("Discount is too high for such a cost")
+            return Fluid.transaction.error("Discount is too high for such a cost")
           }
 
-          return Fluid.transaction.resolved(newDiscount)
+          return Fluid.transaction.success(newDiscount)
         }),
         Fluid.transaction.write(_lastEditTimestamp_, Date.now()),
       )

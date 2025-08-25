@@ -63,6 +63,6 @@ TODO: think about integrating with **transactions**.
 - Add `literateFn` to `transaction.write`.
 - Replace `mapF` with `mapE`.
 - Change order of arguments in `transaction.fold`.
-- Consider rename `transaction.resolved` to `transaction.success`, and
-`transaction.rejected` to `transaction.error`.
+- Consider rename `transaction.success` to `transaction.success`, and
+`transaction.error` to `transaction.error`.
 
