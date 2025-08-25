@@ -134,6 +134,34 @@ describe("Fluid", () => {
       Fluid.write(_x_, 40)
       expect(fn).not.toHaveBeenCalled()
     })
+
+    it.only("destroys listener after first run if once prop passed", () => {
+      const _x_ = Fluid.val(10)
+      const fn = vi.fn()
+      // test single dependency
+
+      Fluid.listen(_x_, fn, { once: true })
+
+      Fluid.write(_x_, 20)
+      Fluid.write(_x_, 30)
+      Fluid.write(_x_, 40)
+
+      expect(fn).toHaveBeenCalledOnce()
+
+      fn.mockClear()
+
+      // test multiple dependencies
+
+      const _y_ = Fluid.val(10)
+
+      Fluid.listen([_x_, _y_], (x, y) => fn(x, y), { once: true })
+
+      Fluid.write(_y_, 20)
+      Fluid.write(_x_, 30)
+      Fluid.write(_y_, 40)
+
+      expect(fn).toHaveBeenCalledOnce()
+    })
   })
 
   describe("destroy", () => {

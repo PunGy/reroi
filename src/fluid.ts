@@ -775,6 +775,7 @@ type Unsub = () => void;
 
 interface ListenProps extends DeriveProps {
   immidiate?: boolean;
+  once?: boolean;
 }
 
 function listen<V>(
@@ -806,19 +807,31 @@ function listen<V>(
     sources.clear()
   }
 
-  /**
-   * Creates update function for getting
-   * a new state of derive
-   */
   const mkApplier = () => {
     if (sources.size === 1) {
       const _r_ = sources.values().next().value!
-      return () => fn(read(_r_))
+      const singleParamEffect = props?.once
+        ? (prop: any) => {
+          fn(prop)
+          unsub()
+        }
+        : fn
+
+      return () => singleParamEffect(read(_r_))
     }
     const _list_ = Array.from(sources.values())
-    return () => (
-      (fn as ((...values: any[]) => void))(..._list_.map(_reactive_ => read(_reactive_)))
-    )
+
+    const fn_: ((...values: any[]) => void) = fn
+    const multiParamEffect = props?.once
+      ? (...values: any[]) => {
+        fn_(...values)
+        unsub()
+      }
+      : fn_
+
+    return () => {
+      return multiParamEffect(..._list_.map(_reactive_ => read(_reactive_)))
+    }
   }
   let react = mkApplier()
 
