@@ -13,10 +13,6 @@ recordings.
 - **info**: print information about reactive object: either it value or
 derivation, what dependencies does it have, etc.
 
-## Fluid.listen
-
-- **once** option: run listener once and then destroy.
-
 ## Fluid.notifier
 
 Special object for message broadcasting. Difference from `Fluid.val`: no read
@@ -61,8 +57,4 @@ TODO: think about integrating with **transactions**.
 ## Minor
 
 - Add `literateFn` to `transaction.write`.
-- Replace `mapF` with `mapE`.
-- Change order of arguments in `transaction.fold`.
-- Consider rename `transaction.success` to `transaction.success`, and
-`transaction.error` to `transaction.error`.
 
