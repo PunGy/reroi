@@ -54,7 +54,23 @@ Fluid.listen(
 
 TODO: think about integrating with **transactions**.
 
+## Framework connection
+
+### @reactive-fluid/react
+
+React integration utils:
+
+```typescript
+import { Reactive } from 'reactive-fluid'
+
+/**
+ * Subscribe to a value of the reactive object
+ * re-render component on update
+ */
+function useFluid<T>(_reactive_: Reactive<T>): T;
+```
+
 ## Minor
 
-- Add `literateFn` to `transaction.write`.
+- Add `literateFn` to `Fluid.transaction.write`.
 
