@@ -135,7 +135,7 @@ describe("Fluid", () => {
       expect(fn).not.toHaveBeenCalled()
     })
 
-    it.only("destroys listener after first run if once prop passed", () => {
+    it("destroys listener after first run if once prop passed", () => {
       const _x_ = Fluid.val(10)
       const fn = vi.fn()
       // test single dependency
@@ -512,6 +512,15 @@ describe("Fluid", () => {
     })
 
     it("read _b_ only after change of _a_", () => {
+      /**
+       * The essence of the test:
+       * make derivation _c_, which listenes only to those changes of _b_,
+       * that happened only after change of _a_
+       *
+       * Real world scenario:
+       * listen movement of selected objects,
+       * but only that happened after collaborative user change
+       */
       const _a_ = Fluid.val("a")
       const _b_ = Fluid.val("b")
       const fn = vi.fn()
@@ -575,6 +584,31 @@ describe("Fluid", () => {
       expect(fn).toHaveBeenNthCalledWith(2, "3: Hi?")
       expect(fn).toHaveBeenNthCalledWith(3, "2: Hi?")
       expect(fn).toHaveBeenNthCalledWith(4, "1: Hi?")
+    })
+
+    it("keeps the insertion order", () => {
+      const _a_ = Fluid.val(0)
+
+      let seen = ""
+      Fluid.listen(_a_, () => {
+        seen += "2"
+      })
+      Fluid.listen(_a_, () => {
+        seen += "3"
+      })
+      Fluid.listen(_a_, () => {
+        seen += "4"
+      }, { priority: Fluid.priorities.lowest })
+      Fluid.listen(_a_, () => {
+        seen += "5"
+      }, { priority: Fluid.priorities.lowest })
+      Fluid.listen(_a_, () => {
+        seen += "1"
+      }, { priority: Fluid.priorities.highest })
+
+      Fluid.write(_a_, 1)
+
+      expect(seen).toBe("12345")
     })
   })
 
@@ -640,6 +674,7 @@ describe("Fluid", () => {
     const _finalPrice_ = Fluid.derive([_totalPrice_, _discount_], (price, discount) => {
       return price * discount
     })
+
 
     const setDiscount = (newDiscount: number) => {
       return Fluid.transaction.compose(

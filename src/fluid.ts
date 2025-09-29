@@ -25,10 +25,10 @@ enum NotificationType {
 }
 type Message = (from: _Reactive, type: NotificationType) => void;
 
-const plowest = Symbol("lowest")
-const phighest = Symbol("highest")
+const plowest = -1000
+const phighest = 1000
 // Lower number - lower priority
-type Priority = number | symbol
+type Priority = number
 
 interface Priorities {
   lowest: typeof plowest,
@@ -50,21 +50,18 @@ const priorities: Priorities = {
    * @returns P1
    */
   before(p0: ReactiveDerivation<unknown> | Priority) {
-    if (p0 === this.highest) {
-      console.warn("Fluid: Cannot use highest priority for Fluid.priorities.before! You can find 'before' only for numeric or lowest")
-      return p0
+    let p: number
+    if (typeof p0 === "number") {
+      p = p0
+    } else {
+      p = (p0 as _ReactiveDerivation).priority
     }
-    if (p0 === this.lowest) {
-      return -Number.MAX_SAFE_INTEGER
-    }
-    if (typeof p0 === "number") return p0 + 1
 
-    const { priority, dependencies } = (p0 as _ReactiveDerivation<unknown>)
-    if (priority === this.highest) {
-      console.warn("Fluid: Cannot use derives with highest priority for Fluid.priorities.before! You can find 'before' only for numeric or lowest")
-      return priority
+    if (p >= this.highest) {
+      console.warn("Fluid: Cannot use 'before' with priority bigger then the highest!")
+      return p
     }
-    return priority === this.lowest ? dependencies.firstIndex : (priority as number) + 1
+    return p + 1
   },
 
   /**
@@ -75,67 +72,34 @@ const priorities: Priorities = {
    * @returns P1
    */
   after(p0: ReactiveDerivation<unknown> | Priority) {
-    if (p0 === this.lowest) {
-      console.warn("Fluid: Cannot use lowest priority for Fluid.priorities.after! You can find 'after' only for numeric or highest")
-      return p0
+    let p: number
+    if (typeof p0 === "number") {
+      p = p0
+    } else {
+      p = (p0 as _ReactiveDerivation).priority
     }
-    if (p0 === this.highest) {
-      return +Number.MAX_SAFE_INTEGER
-    }
-    if (typeof p0 === "number") return p0 - 1
 
-    const { priority, dependencies } = (p0 as _ReactiveDerivation<unknown>)
-    if (priority === this.lowest) {
-      console.warn("Fluid: Cannot use derives with lowest priority for Fluid.priorities.after! You can find 'after' only for numeric or highest")
-      return priority
+    if (p <= this.lowest) {
+      console.warn("Fluid: Cannot use 'after' with priority lower then the lowest!")
+      return p
     }
-    return priority === this.highest ? dependencies.lastIndex : (priority as number) - 1
+    return p - 1
   },
 }
 
-type Pool = Map<unknown, Message>
+type _ReactiveListener = {
+  dependencies?: _ReactiveDerivation["dependencies"],
+  _onMessage: _ReactiveDerivation["_onMessage"],
+}
+type Pool = Set<_ReactiveListener>
 export class PriorityPool extends SparseArray<Pool> {
-  push(value: Map<unknown, Message>, index7?: Priority): Map<unknown, Message> {
-    if (index7 === priorities.lowest) {
-      return this.lowest = value
-    } else if (index7 === priorities.highest) {
-      return this.highest = value
-    }
-    return super.push(value, index7 as number)
-  }
-  get(index: Priority): Map<unknown, Message> | undefined {
-    if (index === priorities.lowest) {
-      return this.lowest
-    } else if (index === priorities.highest) {
-      return this.highest
-    }
-    return super.get(index as number)
-  }
-  getOrMake(index: Priority): Map<unknown, Message> {
+  getOrMake(index: Priority): Pool {
     let pool = this.get(index)
     if (pool === undefined) {
-      pool = new Map()
-      if (index === priorities.lowest) {
-        this.lowest = pool
-      } else if (index === priorities.highest) {
-        this.highest = pool
-      } else {
-        this.push(pool, index)
-      }
+      pool = new Set()
+      this.push(pool, index)
     }
     return pool
-  }
-  lowest: Map<unknown, Message> | undefined
-  highest: Map<unknown, Message> | undefined
-
-  forEachBackward(fn: (arg: Map<unknown, Message>, index: number) => void): void {
-    if (this.highest) {
-      fn(this.highest, +Infinity)
-    }
-    super.forEachBackward(fn)
-    if (this.lowest) {
-      fn(this.lowest, -Infinity)
-    }
   }
 
   /**
@@ -149,35 +113,17 @@ export class PriorityPool extends SparseArray<Pool> {
    */
   static merge(p1: PriorityPool, p2: PriorityPool) {
     const result = new PriorityPool()
-    const seen = new Set()
 
     // put entire p1 to result
     p1.forEachBackward((pool, priority) => {
       result.push(pool, priority)
-      pool.forEach((_, source) => {
-        seen.add(source)
-      })
     })
-
-    // merge with p2, filter out already seen connections
     p2.forEachBackward((pool, priority) => {
-      const merged: Pool = new Map()
-      pool.forEach((message, source) => {
-        if (seen.has(source)) {
-          return
-        }
-        merged.set(source, message)
-        seen.add(source)
-      })
-      if (merged.size > 0) {
-        const existingPool = result.get(priority)
-        if (existingPool) {
-          merged.forEach((message, source) => {
-            existingPool.set(source, message)
-          })
-        } else {
-          result.push(merged, priority)
-        }
+      const p = result.get(priority)
+      if (p) {
+        result.push(p.union(pool), priority)
+      } else {
+        result.push(pool, priority)
       }
     })
 
@@ -242,10 +188,12 @@ interface _ReactiveValue<V> extends ReactiveValue<V>, Dependable {
   value: V;
 }
 
-interface _ReactiveDerivation<V, D extends Array<unknown> = Array<unknown>> extends ReactiveDerivation<V, D>, Dependable {
+interface _ReactiveDerivation<V = unknown, D extends Array<unknown> = Array<unknown>> extends ReactiveDerivation<V, D>, Dependable {
   __tag: typeof _rder,
   _destroy(): void;
   _cache: (typeof nullCache) | V;
+  _invalidate(): void;
+  _onMessage(source: _Reactive, type: NotificationType): void;
   priority: Priority;
   value(): V;
   fn: (...values: D) => V,
@@ -274,11 +222,22 @@ function isDerive<V>(_value_: Reactive<V> | any): _value_ is _ReactiveDerivation
 }
 
 const notifyDeps = (_r_: _Reactive, type: NotificationType) => {
-  _r_.dependencies.forEachBackward((pool) => {
-    pool.forEach(message => {
-      message(_r_, type)
+  const stack: Array<_ReactiveListener> = []
+
+  function fill(dependencies: PriorityPool) {
+    dependencies.forEach(r => {
+      stack.push(...[...r].reverse())
     })
-  })
+  }
+  fill(_r_.dependencies)
+
+  while (stack.length > 0) {
+    const reactive = stack.pop()!
+    reactive._onMessage(_r_, type)
+    if (reactive.dependencies && !reactive.dependencies.isEmpty) {
+      fill(reactive.dependencies)
+    }
+  }
 }
 
 // Utilities // Operations
@@ -674,8 +633,10 @@ function derive<V, V2>(
       return () => fn(read(_r_))
     }
     const _list_ = Array.from(sources.values())
+    type FN = ((...values: any[]) => V2)
+
     return () => (
-      (fn as ((...values: any[]) => V2))(..._list_.map(_reactive_ => read(_reactive_)))
+      (fn as FN)(..._list_.map(_reactive_ => read(_reactive_)))
     )
   }
   let applyFn = mkApplier()
@@ -690,6 +651,23 @@ function derive<V, V2>(
       notifyDeps(this, NotificationType.SOURCE_DESTROYED)
     },
     _cache: nullCache,
+    _onMessage(source: _Reactive, type: NotificationType) {
+      switch (type) {
+      case NotificationType.UPDATE:
+        derived._cache = nullCache
+        break
+      case NotificationType.SOURCE_DESTROYED:
+        if (sources.has(source as _Reactive<V>)) {
+          sources.delete(source as _Reactive<V>)
+          if (sources.size === 0) {
+            derived._destroy()
+          } else {
+            applyFn = mkApplier()
+          }
+        }
+        break
+      }
+    },
     // @ts-expect-error TODO: fix encapsulation
     fn,
     priority: props?.priority ?? priorities.base,
@@ -702,30 +680,9 @@ function derive<V, V2>(
     },
   }
 
-  function invalidate() {
-    derived._cache = nullCache
-    notifyDeps(derived, NotificationType.UPDATE)
-  }
-  function sourceDestroyed(source: _Reactive) {
-    sources.delete(source as _Reactive<V>)
-    if (sources.size === 0) {
-      derived._destroy()
-    } else {
-      applyFn = mkApplier()
-    }
-  }
-
-  const onMessage = (source: _Reactive, type: NotificationType) => {
-    if (type === NotificationType.UPDATE) {
-      invalidate()
-    } else {
-      sourceDestroyed(source)
-    }
-  }
-
   sources.forEach(source => {
     const pool = source.dependencies.getOrMake(derived.priority)
-    pool.set(derived, onMessage)
+    pool.add(derived)
   })
 
   return derived
@@ -752,6 +709,11 @@ function listen<Vs extends NonEmptyArray<any>>(
   props?: ListenProps,
 ): Unsub
 function listen<V>(
+  _reactive_: Array<Reactive<V>>,
+  fn: (...values: Array<Reactive<V>>) => void,
+  props?: ListenProps,
+): Unsub
+function listen<V>(
   _v_: Reactive<V> | NonEmptyArray<Reactive<any>>,
   fn: ((value: V) => void) | ((...values: any[]) => void),
   props?: ListenProps,
@@ -761,10 +723,24 @@ function listen<V>(
     : new Set([_v_]) as Set<_Reactive<V>>
 
   const priority = props?.priority ?? priorities.base
+
+  const listener: _ReactiveListener = {
+    _onMessage(source, type) {
+      switch (type) {
+      case NotificationType.UPDATE:
+        react()
+        break
+      case NotificationType.SOURCE_DESTROYED:
+        sourceDestroyed(source)
+        break
+      }
+    },
+  }
+
   function unsub() {
     sources.forEach(source => {
       const pool = source.dependencies.getOrMake(priority)
-      pool.delete(unsub)
+      pool.delete(listener)
     })
     sources.clear()
   }
@@ -803,17 +779,10 @@ function listen<V>(
       react = mkApplier()
     }
   }
-  const onMessage = (source: _Reactive, type: NotificationType) => {
-    if (type === NotificationType.UPDATE) {
-      react()
-    } else {
-      sourceDestroyed(source)
-    }
-  }
 
   sources.forEach(source => {
     const pool = source.dependencies.getOrMake(props?.priority ?? priorities.base)
-    pool.set(unsub, onMessage)
+    pool.add(listener)
   })
 
   if (props?.immidiate) {
