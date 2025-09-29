@@ -1,5 +1,5 @@
 import { describe, test, it, expect, vi } from "vitest"
-import { Fluid, Reactive, ReactiveValue } from "./fluid"
+import { Fluid, Reactive, ReactiveValue } from "./index"
 
 describe("Fluid", () => {
   describe("val", () => {
