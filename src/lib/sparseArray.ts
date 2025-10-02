@@ -6,7 +6,7 @@ interface Node<V> {
 }
 
 export class SparseArray<V> {
-  private nodeMap: Record<number, Node<V>> = {}
+  private nodeMap = new Map<number, Node<V>>()
   private tail: Node<V> | undefined
   private head: Node<V> | undefined
 
@@ -21,6 +21,10 @@ export class SparseArray<V> {
   }
   get lastIndex() {
     return this.head?.index ?? 0
+  }
+
+  get isEmpty() {
+    return this.head === undefined
   }
 
   forEach(fn: (arg: V, index: number) => void) {
@@ -53,7 +57,7 @@ export class SparseArray<V> {
   }
 
   delete(index: number) {
-    const node = this.nodeMap[index]
+    const node = this.nodeMap.get(index)
     if (node) {
       if (node.previous) {
         node.previous.next = node.next
@@ -65,11 +69,11 @@ export class SparseArray<V> {
       } else {
         this.head = node
       }
-      delete this.nodeMap[index]
+      this.nodeMap.delete(index)
     }
   }
   get(index: number) {
-    return this.nodeMap[index]?.value
+    return this.nodeMap.get(index)?.value
   }
   push(value: V, index7?: number): V {
     if (this.head === undefined) {
@@ -80,7 +84,7 @@ export class SparseArray<V> {
         next: undefined,
         index,
       }
-      this.nodeMap[index] = node
+      this.nodeMap.set(index, node)
       this.head = this.tail = node
       return node.value
     }
@@ -118,8 +122,13 @@ export class SparseArray<V> {
     if (node.next) node.next.previous = node
 
 
-    this.nodeMap[index] = node
+    this.nodeMap.set(index, node)
 
     return node.value
+  }
+
+  clear() {
+    this.tail = this.head = undefined
+    this.nodeMap.clear()
   }
 }

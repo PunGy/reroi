@@ -11,11 +11,13 @@ Zero-dependency library for creating reactive systems with maximum control.
   - [Reactive type](#reactive-type)
     - [Fluid.val: ReactiveValue](#fluidval-reactivevalue)
     - [Fluid.derive: ReactiveDerivation](#fluidderive-reactivederivation)
+    - [Fluid.deriveAll: ReactiveDerivation of multiple sources](#fluidderiveall-reactivederivation-of-multiple-sources)
   - [Reading and Writing](#reading-and-writing)
     - [Fluid.write](#fluidwrite)
     - [Fluid.read](#fluidread)
   - [Listening](#listening)
     - [Fluid.listen](#fluidlisten)
+    - [Fluid.listenAll](#fluidlistenall)
   - [Priorities](#priorities)
     - [Levels](#levels)
     - [Fluid.priorities.before](#fluidprioritiesbefore)
@@ -84,8 +86,10 @@ import { Fluid } from 'reactive-fluid'
 const _name_    = Fluid.val("Michal")
 const _surname_ = Fluid.val("Smith")
 
-const _fullName_ = Fluid.derive(
-    [_name_, _surname_],
+const _surnameUpper_ = Fluid.derive(_surname_, str => str.toUpperCase())
+
+const _fullName_ = Fluid.deriveAll(
+    [_name_, _surnameUpper_],
     (name, surname) => name + " " + surname
 )
 
@@ -97,9 +101,10 @@ Fluid.listen(
 )
 
 Fluid.write(_name_, "George")
-// Hello, George Smith
+// log: Hello, George SMITH
 
 console.log(Fluid.read(_name_)) // George
+console.log(Fluid.read(_fullName_)) // George SMITH
 ```
 
 The `_name_` and `_surname_` are `ReactiveValue<string>`. The `_fullName_` is
@@ -116,7 +121,7 @@ Reactive<A> = ReactiveValue<A> | ReactiveDerivation<A>`.
 ### Reactive type
 
 Any reactive object is a type constructor. This means it cannot be used as a
-plain value, but rather as a _container_ of *something*.
+plain value, but rather as a *container* of *something*.
 
 Similar to how you treat a `Promise`, you cannot read the value directly; you
 need to unwrap it first. For example, you can unwrap a promise with `await`,
@@ -158,16 +163,16 @@ computed value derived from an existing `Reactive` entity.
 
 ```typescript
 function derive<V, V2>(
-    dependencies: Reactive<V> | Array<Reactive<V>>,
-    computation: ((value: V) => V2) | ((values: Array<V>) => V2),
+    _source_: Reactive<V>,
+    computation: (value: V) => V2,
     props?: { priority?: Priority },
 ): ReactiveDerivation<V2>;
 ```
 
-- **dependencies**: Either a single dependency or a list of dependencies. The derivation updates when any dependency changes.
-- **computation**: A function that takes a single value or a list of values, based on the dependencies. The return value becomes the state of the derivation.
+- **\_source\_**: A single reactive dependency we deriving from.
+- **computation**: A function that takes a single value, based on the source. The return value becomes the state of the derivation.
 - **props**:
-    - **priority**: See [priorities](#fluidpriorities). Default is `Fluid.priorities.base`.
+  - **priority**: See [priorities](#fluidpriorities). Default is `Fluid.priorities.base`.
 
 The result of the derivation is cached between calls and recomputed only after dependency updates.
 
@@ -192,8 +197,48 @@ console.log(Fluid.read(_discounted_)) // 425, computed
 > upon direct **reading**. For an active listener, use
 > [Fluid.listen](#fluid-listen).
 
-> IMPORTANT EXCEPTION: If a derive is in the dependency list for Fluid.listen,
+> IMPORTANT EXCEPTION: If a derive is in the dependency list for Fluid.listen/listenAll,
 > it will be recomputed when the listener is about to execute.
+
+#### Fluid.deriveAll: ReactiveDerivation of multiple sources
+
+The `ReactiveDerivation`, created with `Fluid.derive`, is a way to create a new
+computed value derived from an existing `Reactive` entity.
+
+```typescript
+function deriveAll<Vs extends Array<unknown>, V2>(
+    _sources_: { [K in keyof Vs]: Reactive<Vs[K]> },
+    computation: (value: Vs) => V2,
+    props?: { priority?: Priority },
+): ReactiveDerivation<V2>;
+```
+
+- ***sources***: A list of reactive dependencies we deriving from.
+- **computation**: A function that takes a list of values from the
+dependencies, and returns a state of the derivation.
+- **props**:
+  - **priority**: See [priorities](#fluidpriorities). Default is `Fluid.priorities.base`.
+
+```typescript
+const _a_ = Fluid.val("a")
+const _b_ = Fluid.val("b")
+const _c_ = Fluid.val("c")
+const _d_ = Fluid.val("d")
+const _e_ = Fluid.val("e")
+
+const deps = [_a_, _b_, _c_, _d_, _e_]
+const _word_ = Fluid.deriveAll(deps, sources =>
+    sources.reduce((str, x) => str + x, ""))
+
+Fluid.read(_word_) // abcde
+
+const _f_ = Fluid.val(10)
+
+const _compound_ = Fluid.deriveAll([_e_, _f_], ([str, num]) =>
+    str.toUpperCase() + ": " + num.toFixed(5))
+
+Fluid.read(_compound_) // E: 10.00000
+```
 
 ### Reading and Writing
 
@@ -207,10 +252,10 @@ function write<A>(
 ): ReactiveValue<A>;
 ```
 
-- **_value_**: Reactive value to write to.
+- ***value***: Reactive value to write to.
 - **newValue**: Value producer or a plain value.
 - **props**:
-    - **literateFn**: Treat a function passed as `newValue` as a value, not as
+  - **literateFn**: Treat a function passed as `newValue` as a value, not as
     a value producer.
 
 ```typescript
@@ -259,26 +304,47 @@ function read<V>(_reactive_: Reactive<V>): V;
 
 #### Fluid.listen
 
-Active listener with side effects:
+Active listener with side effects on single dependency:
 
 ```typescript
 type Unsub = () => void;
 
 function listen<V>(
-    dependencies: Reactive<V> | Array<Reactive<V>>,
-    sideEffect: ((value: V) => void) | ((values: Array<V>) => void),
+    _source_: Reactive<V>,
+    sideEffect: (value: V) => void,
     props?: { priority?: Priority, immediate?: boolean },
 ): Unsub;
 ```
 
-- **dependencies**: Either a single dependency or a list of dependencies.
-- **sideEffect**: A function that takes a single value or a list of values,
-based on the dependencies. `sideEffect` is called on **every** dependency
-update.
+- **\_source\_**: A single reactive dependency we listen and fire effect on update.
+- **sideEffect**: An effect called on update of the source. `sideEffect`
+is called on **every** dependency update.
 - **props**:
-    - **priority**: See [priorities](#fluidpriorities). Default is
+  - **priority**: See [priorities](#fluidpriorities). Default is
     `Fluid.priorities.base`.
-    - **immediate**: Call the listen effect upon declaration. Default is
+  - **immediate**: Call the listen effect upon declaration. Default is
+    `false`.
+
+#### Fluid.listenAll
+
+Active listener with side effects:
+
+```typescript
+type Unsub = () => void;
+
+function listenAll<Vs extends Array<unknown>, V2>(
+    _sources_: { [K in keyof Vs]: Reactive<Vs[K]> },
+    sideEffect: (values: Vs) => void,
+    props?: { priority?: Priority, immediate?: boolean },
+): Unsub;
+```
+
+- **\_sources\_**: A list of dependencies.
+- **sideEffect**: An effect to be called on update of dependencies.
+- **props**:
+  - **priority**: See [priorities](#fluidpriorities). Default is
+    `Fluid.priorities.base`.
+  - **immediate**: Call the listen effect upon declaration. Default is
     `false`.
 
 ### Priorities
@@ -304,9 +370,9 @@ const _shipping_ = Fluid.derive(
   price => price > 50 ? 0 : 5.00, // free shipping over $50
 )
 
-Fluid.listen(
+Fluid.listenAll(
     [_price_, _tax_, _shipping_],
-    (price, tax, shipping) => {
+    ([price, tax, shipping]) => {
         const total = price + tax + shipping
         console.log(`Final price: $${total.toFixed(2)} (incl. tax: $${tax.toFixed(2)}, shipping: $${shipping.toFixed(2)})`)
     }
@@ -355,12 +421,9 @@ The listener executes **after** shipping and tax.
 
 #### Levels
 
-A priority level is essentially a number (with minor exceptions). There are
-three default levels:
+A priority level is essentially a number. There are three default levels:
 
-- **Fluid.priorities.highest**: Special level, executed **before all** others,
-even before **+Infinity** (but not before others defined with the same priority
-earlier in the code).
+- **Fluid.priorities.highest**: Maximum priority level, executed **before all** others.
 - **Fluid.priorities.base**: Default priority for dependencies, equivalent to
 `0`.
 - **Fluid.priorities.lowest**: Opposite of `highest` - executed **after all**
@@ -384,6 +447,13 @@ Fluid.write(_msg_, "Hi?")
 // 2: Hi?
 // 1: Hi?
 ```
+
+No priority should be higher than `highest`, neither lower than `lowest`.
+
+- `highest`: `1000`.
+- `lowest`: `-1000`.
+
+`2000` of levels should be enough for all ;)
 
 #### Fluid.priorities.before
 
@@ -455,7 +525,7 @@ Generics:
 
 Parameters:
 
-- **_value_**: Reactive value to write the transaction result to.
+- ***value***: Reactive value to write the transaction result to.
 - **newValue**: Either a function that accepts the current value and
 transaction context, or a plain value to resolve the transaction with.
 - **id**: Optional ID of the transaction.
@@ -588,7 +658,7 @@ if (Fluid.transaction.isError(state)) {
 > type classes.
 
 Maps `TransactionSuccess<R>` to `TransactionSuccess<R2>`. Can be used to
-_peek_ into a success transaction's value.
+*peek* into a success transaction's value.
 
 ```typescript
 import { Fluid } from 'reactive-fluid'
@@ -654,7 +724,7 @@ import { Fluid } from 'reactive-fluid'
 const _name_ = Fluid.val("George")
 const _surname_ = Fluid.val("Kowalski")
 
-Fluid.listen([_name_, _surname_], (name, surname) => {
+Fluid.listenAll([_name_, _surname_], ([name, surname]) => {
     console.log(`Hello, ${name} ${surname}!`)
 })
 
@@ -745,9 +815,9 @@ import { Fluid } from 'reactive-fluid'
 
 const _name_ = Fluid.val("George")
 const _surname_ = Fluid.val("Kowalski")
-const _fullName_ = Fluid.derive(
+const _fullName_ = Fluid.deriveAll(
     [_name_, _surname_],
-    (name, surname) => name + " " + surname
+    ([name, surname]) => name + " " + surname
 )
 
 const _messagePool_ = Fluid.val<Array<string>>([])
@@ -798,7 +868,8 @@ function destroy(
 ): void;
 ```
 
-Once destroyed, it notifies all listeners, which stop listening. If it was the last dependency, dependents are cascadedly destroyed.
+Once destroyed, it notifies all listeners, which stop listening. If it was the
+last dependency, dependents are cascadedly destroyed.
 
 ## Examples
 

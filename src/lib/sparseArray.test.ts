@@ -24,6 +24,21 @@ describe("SparseArray", () => {
     expect(arr.get(6)).toBe("c")
   })
 
+  it("can overwrite", () => {
+    const arr = new SparseArray<string>()
+    arr.push("a", 1)
+    arr.push("b", 1)
+    arr.push("c", 1)
+
+    expect(arr.get(1)).toBe("c")
+  })
+
+  it("can be empty", () => {
+    const arr = new SparseArray()
+
+    expect(arr.isEmpty).toBe(true)
+  })
+
   it("can put value in between", () => {
     const arr = new SparseArray<string>()
     arr.push("a")
@@ -51,5 +66,32 @@ describe("SparseArray", () => {
     arr.push("A", 0)
 
     expect(arr.toArray()).toEqual(["A", "b", "c"])
+  })
+
+  it("properly goes forward", () => {
+    const arr = new SparseArray<number>()
+
+    arr.push(1)
+    arr.push(2)
+    arr.push(3, 10)
+    arr.push(4)
+
+    const seen: Array<number> = []
+    arr.forEach(x => seen.push(x))
+
+    expect(seen).toEqual([1, 2, 3, 4])
+  })
+  it("properly goes backward", () => {
+    const arr = new SparseArray<number>()
+
+    arr.push(1)
+    arr.push(2)
+    arr.push(3, 10)
+    arr.push(4)
+
+    const seen: Array<number> = []
+    arr.forEachBackward(x => seen.push(x))
+
+    expect(seen).toEqual([4, 3, 2, 1])
   })
 })
