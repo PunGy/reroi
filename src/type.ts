@@ -26,18 +26,20 @@ export interface Priorities {
 
 
 export interface ReactiveValue<V> {
+  __tag: typeof _rval,
   /** @deprecated Exists only for types */
   __value: V;
   __readable: typeof _readable;
   __writable: typeof _writable;
 }
 
-export interface ReactiveDerivation<V, D extends Array<unknown> = Array<unknown>> {
-  /** @deprecated Exists only for types */
+export interface ReactiveDerivation<V, D extends ReadonlyArray<unknown> = ReadonlyArray<unknown>> {
+  __tag: typeof _rder,
+  /** @deprecated Not a real property, exists only for types */
   __value: V;
-  /** @deprecated Exists only for types */
+  /** @deprecated Not a real property, exists only for types */
   __readable: typeof _readable;
-  /** @deprecated Exists only for types */
+  /** @deprecated Not a real property, exists only for types */
   __meta_dependencies?: D,
 }
 
@@ -46,19 +48,18 @@ export type Reactive<V = unknown> = ReactiveValue<V> | ReactiveDerivation<V>
 // Internal
 
 export interface _ReactiveValue<V> extends ReactiveValue<V>, Dependable {
-  __tag: typeof _rval,
   value: V;
 }
 
 export interface _ReactiveDerivation<V = unknown, D extends Array<unknown> = Array<unknown>> extends ReactiveDerivation<V, D>, Dependable {
-  __tag: typeof _rder,
   _destroy(): void;
   _cache: (typeof nullCache) | V;
   _invalidate(): void;
   _onMessage(source: _Reactive, type: NotificationType): void;
+  _destroyed: boolean;
   priority: Priority;
   value(): V;
-  fn: (...values: D) => V,
+  fn: (values: D | D[0]) => V,
 }
 
 export type _Reactive<V = unknown> = _ReactiveValue<V> | _ReactiveDerivation<V>

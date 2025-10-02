@@ -126,4 +126,9 @@ export class SparseArray<V> {
 
     return node.value
   }
+
+  clear() {
+    this.tail = this.head = undefined
+    this.nodeMap.clear()
+  }
 }

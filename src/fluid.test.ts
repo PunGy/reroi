@@ -1,5 +1,11 @@
 import { describe, test, it, expect, vi } from "vitest"
 import { Fluid, Reactive, ReactiveValue } from "./index"
+import { inspect } from "util"
+
+const sumList = <T extends string | number>(list: Array<T>): T => (
+  // @ts-expect-error i'm okay with runtime error on incorrect use in tests
+  list.reduce((acc, x) => acc + x, typeof list[0] === "string" ? "" : 0)
+)
 
 describe("Fluid", () => {
   describe("val", () => {
@@ -55,7 +61,7 @@ describe("Fluid", () => {
     it("can have more than one dependency", () => {
       const _name_ = Fluid.val("Max")
       const _surname_ = Fluid.val("Yakovlev")
-      const _fullName_ = Fluid.derive([_name_, _surname_], (name, surname) => `${name} ${surname}`)
+      const _fullName_ = Fluid.deriveAll([_name_, _surname_], ([name, surname]) => `${name} ${surname}`)
 
       expect(Fluid.read(_fullName_)).toBe("Max Yakovlev")
 
@@ -73,14 +79,23 @@ describe("Fluid", () => {
       const _d_ = Fluid.val("d")
       const _e_ = Fluid.val("e")
 
-      const _sum_ = Fluid.derive([_a_, _b_, _c_, _d_, _e_], (a, b, c, d, e) => (
-        a + b + c + d + e
+      const deps = [_a_, _b_, _c_, _d_, _e_]
+      const _sum_ = Fluid.deriveAll(deps, (sources) => (
+        sumList(sources)
       ))
 
       expect(Fluid.read(_sum_)).toBe("abcde")
 
       Fluid.write(_d_, "D")
       expect(Fluid.read(_sum_)).toBe("abcDe")
+    })
+
+    it("correctly handles duplicated dependencies", () => {
+      const _x_ = Fluid.val(1)
+
+      const _sum_ = Fluid.deriveAll([_x_, _x_, _x_], sumList)
+
+      expect(Fluid.read(_sum_)).toBe(3)
     })
   })
 
@@ -100,7 +115,7 @@ describe("Fluid", () => {
       const _y_ = Fluid.val(20)
       const fn = vi.fn()
 
-      Fluid.listen([_x_, _y_], (x, y) => fn(x + y))
+      Fluid.listenAll([_x_, _y_], ([x, y]) => fn(x + y))
 
       Fluid.write(_x_, 20)
       expect(fn).toHaveBeenCalledWith(40)
@@ -154,7 +169,7 @@ describe("Fluid", () => {
 
       const _y_ = Fluid.val(10)
 
-      Fluid.listen([_x_, _y_], (x, y) => fn(x, y), { once: true })
+      Fluid.listenAll([_x_, _y_], ([x, y]) => fn(x, y), { once: true })
 
       Fluid.write(_y_, 20)
       Fluid.write(_x_, 30)
@@ -165,12 +180,12 @@ describe("Fluid", () => {
   })
 
   describe("destroy", () => {
-    it("destroyes derivation and stops clears subscription", () => {
+    it("destroyes derivation and clears subscription", () => {
       const _x_ = Fluid.val(10)
       const _x2_ = Fluid.derive(_x_, x => x * 2)
       const _y_ = Fluid.val(20)
 
-      const _coordinates_ = Fluid.derive([_x2_, _y_], (x, y) => `[x: ${x}, y: ${y}]`)
+      const _coordinates_ = Fluid.deriveAll([_x2_, _y_], ([x, y]) => `[x: ${x}, y: ${y}]`)
 
       expect(Fluid.read(_coordinates_)).toBe("[x: 20, y: 20]")
 
@@ -180,6 +195,7 @@ describe("Fluid", () => {
 
       // wasn't changed, because _coordinates_ no more listen _x2_
       expect(Fluid.read(_coordinates_)).toBe("[x: 20, y: 20]")
+      expect(Fluid.isDestroyed(_x2_)).toBeTruthy()
     })
 
     it("clears listeners of destroyed", () => {
@@ -194,6 +210,7 @@ describe("Fluid", () => {
       Fluid.write(_x_, 20)
 
       expect(fn).not.toHaveBeenCalled()
+      expect(Fluid.isDestroyed(_x2_)).toBeTruthy()
     })
 
     it("cascadely destroyes derivations and listeners of destroyed", () => {
@@ -213,6 +230,39 @@ describe("Fluid", () => {
 
       Fluid.write(_x_, 5)
       expect(fn).not.toHaveBeenCalled()
+      expect(Fluid.isDestroyed(_x2_)).toBeTruthy()
+      expect(Fluid.isDestroyed(_x3_)).toBeTruthy()
+    })
+
+    it("prevents read destroyed derives", () => {
+      const _x_ = Fluid.val(10)
+      const _x2_ = Fluid.derive(_x_, x => x * 2)
+      const _xl_ = Fluid.deriveAll([_x2_, _x2_, _x2_], sumList)
+
+      Fluid.destroy(_x2_)
+
+      expect(() => Fluid.read(_x2_)).toThrowError("Fluid: cannot read destroyed derivation!")
+      expect(() => Fluid.read(_xl_)).toThrowError("Fluid: cannot read destroyed derivation!")
+    })
+
+    it("prevents subscribe to destroyed", () => {
+      const _x_ = Fluid.val(10)
+      const _x2_ = Fluid.derive(_x_, x => x * 2)
+
+      Fluid.destroy(_x2_)
+
+      expect(() => {
+        Fluid.derive(_x2_, x => x)
+      }).toThrowError("Fluid: cannot subscribe to destroyed source!")
+      expect(() => {
+        Fluid.deriveAll([_x_, _x2_], x => x)
+      }).toThrowError("Fluid: cannot subscribe to destroyed source!")
+      expect(() => {
+        Fluid.listen(_x2_, x => x)
+      }).toThrowError("Fluid: cannot subscribe to destroyed source!")
+      expect(() => {
+        Fluid.listenAll([_x_, _x2_], x => x)
+      }).toThrowError("Fluid: cannot subscribe to destroyed source!")
     })
   })
 
@@ -278,9 +328,9 @@ describe("Fluid", () => {
 
         const fn = vi.fn()
 
-        const _combine_ = Fluid.derive(
+        const _combine_ = Fluid.deriveAll(
           [_a_, _b_, _c_],
-          (a, b, c) => a + b + c,
+          ([a, b, c]) => a + b + c,
         )
 
         Fluid.listen(_combine_, fn)
@@ -312,9 +362,10 @@ describe("Fluid", () => {
 
         const fn = vi.fn()
 
-        const _combine_ = Fluid.derive(
-          [_a_, _b_, _c_, _d_, _e_, _f_],
-          (a, b, c, d, e, f) => a + b + c + d + e + f,
+        const deps = [_a_, _b_, _c_, _d_, _e_, _f_]
+        const _combine_ = Fluid.deriveAll(
+          deps,
+          sumList,
         )
 
         Fluid.listen(_combine_, (res) => {
@@ -423,9 +474,9 @@ describe("Fluid", () => {
 
         const fn = vi.fn()
 
-        const _combine_ = Fluid.derive(
+        const _combine_ = Fluid.deriveAll(
           [_a_, _b_, _c_, _d_],
-          (a, b, c, d) => a + b + c + d,
+          sumList,
         )
 
         Fluid.listen(_combine_, (res) => {
@@ -610,6 +661,11 @@ describe("Fluid", () => {
 
       expect(seen).toBe("12345")
     })
+
+    it("prevents from setting priority higher than highest and lower than lowest", () => {
+      expect(() => Fluid.priorities.before(Fluid.priorities.highest)).toThrowError("Fluid: Cannot use 'before' with priority bigger then the highest!")
+      expect(() => Fluid.priorities.after(Fluid.priorities.lowest)).toThrowError("Fluid: Cannot use 'after' with priority lower then the lowest!")
+    })
   })
 
   //////////////
@@ -619,12 +675,12 @@ describe("Fluid", () => {
     const _x_ = Fluid.val("x")
     const _y_ = Fluid.val("y")
 
-    const _a_ = Fluid.derive([_x_, _y_], (x, y) => "a(" + x + y + ")")
-    const _b_ = Fluid.derive([_x_, _y_], (x, y) => "b(" + x + y + ")")
+    const _a_ = Fluid.deriveAll([_x_, _y_], ([x, y]) => "a(" + x + y + ")")
+    const _b_ = Fluid.deriveAll([_x_, _y_], ([x, y]) => "b(" + x + y + ")")
 
     let answer
     Fluid.listen(
-      Fluid.derive([_a_, _b_], (a, b) => [a, b]),
+      Fluid.deriveAll([_a_, _b_], sources => sources),
       ([a, b]) => answer = a + ", " + b,
       { immidiate: true },
     )
@@ -671,10 +727,9 @@ describe("Fluid", () => {
     const _discount_ = Fluid.val(0.10)
     const _lastEditTimestamp_ = Fluid.val(0)
     const _totalPrice_ = Fluid.val(7000)
-    const _finalPrice_ = Fluid.derive([_totalPrice_, _discount_], (price, discount) => {
+    const _finalPrice_ = Fluid.deriveAll([_totalPrice_, _discount_], ([price, discount]) => {
       return price * discount
     })
-
 
     const setDiscount = (newDiscount: number) => {
       return Fluid.transaction.compose(
@@ -712,7 +767,7 @@ describe("Fluid", () => {
     const father = Fluid.val("d")
 
     const sonAge = Fluid.val(10)
-    const youngSon = Fluid.derive([mother, father], (momSaid, dadSaid) => {
+    const youngSon = Fluid.deriveAll([mother, father], ([momSaid, dadSaid]) => {
       return `mommy: ${momSaid}, daddy: ${dadSaid}`
     })
     const matureSon = Fluid.val("") // independent

@@ -1,5 +1,3 @@
-export type NonEmptyArray<V> = { [0]: V } & Array<V>
-
 export type Function1 = (p: any) => any;
 export type AnyFunction = (...args: Array<unknown>) => unknown;
 

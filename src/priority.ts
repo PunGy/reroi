@@ -61,8 +61,7 @@ export const priorities: Priorities = {
     }
 
     if (p >= this.highest) {
-      console.warn("Fluid: Cannot use 'before' with priority bigger then the highest!")
-      return p
+      throw new Error("Fluid: Cannot use 'before' with priority bigger then the highest!")
     }
     return p + 1
   },
@@ -83,8 +82,7 @@ export const priorities: Priorities = {
     }
 
     if (p <= this.lowest) {
-      console.warn("Fluid: Cannot use 'after' with priority lower then the lowest!")
-      return p
+      throw new Error("Fluid: Cannot use 'after' with priority lower then the lowest!")
     }
     return p - 1
   },
