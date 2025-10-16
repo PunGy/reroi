@@ -1,7 +1,7 @@
 {
   "name": "reroi",
   "private": false,
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Library for creating reactive systems with maximum control.",
   "license": "MIT",
   "author": "Maxim Iakovlev <max.yakovlev555@gmail.com>",
@@ -38,7 +38,10 @@
     "lint:fix": "eslint --fix",
     "test": "vitest",
     "test:watch": "vitest --watch",
-    "test:coverage": "vitest --coverage"
+    "test:coverage": "vitest --coverage",
+    "publish:prepare": "pnpm run build && cd build",
+    "publish:alpha": "pnpm run publish:prepare && npm publish --tag=alpha",
+    "publish:latest": "pnpm run publish:prepare && npm publish --tag=latest"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -47,7 +50,6 @@
     "@typescript-eslint/eslint-plugin": "^8.19.1",
     "@typescript-eslint/parser": "^8.19.1",
     "@vitest/coverage-v8": "^2.1.8",
-    "@vue/reactivity": "^3.5.22",
     "copyfiles": "^2.4.1",
     "dts-bundle-generator": "^9.5.1",
     "eslint": "^9.17.0",
