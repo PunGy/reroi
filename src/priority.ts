@@ -61,7 +61,7 @@ export const priorities: Priorities = {
     }
 
     if (p >= this.highest) {
-      throw new Error("Fluid: Cannot use 'before' with priority bigger then the highest!")
+      throw new Error("reroi: Cannot use 'before' with priority bigger then the highest!")
     }
     return p + 1
   },
@@ -82,7 +82,7 @@ export const priorities: Priorities = {
     }
 
     if (p <= this.lowest) {
-      throw new Error("Fluid: Cannot use 'after' with priority lower then the lowest!")
+      throw new Error("reroi: Cannot use 'after' with priority lower then the lowest!")
     }
     return p - 1
   },

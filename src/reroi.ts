@@ -51,14 +51,14 @@ export const read = <V>(_reactive_: Reactive<V>): V => {
   }
   if (isDerive(_reactive_)) {
     if (isDestroyed(_reactive_)) {
-      throw new Error("Fluid: cannot read destroyed derivation!")
+      throw new Error("reroi: cannot read destroyed derivation!")
     }
     return _reactive_._cache === nullCache
       ? _reactive_.value()
       : _reactive_._cache
   }
 
-  throw new Error("Fluid: you can read only reactive entities!")
+  throw new Error("reroi: you can read only reactive entities!")
 }
 
 export const peek = <R extends ReactiveDerivation<unknown>>(_derive_: R, dependencies: NonNullable<R["__meta_dependencies"]>): R["__value"] => {
@@ -95,7 +95,7 @@ export function write<A>(
   props?: { literateFn?: boolean },
 ): ReactiveValue<A> {
   if (!isVal(_value_)) {
-    throw new Error("Fluid: You can write only to ReactiveValue created with Fluid.val!!!")
+    throw new Error("reroi: You can write only to ReactiveValue created with reroi.val!!!")
   }
 
   mutateReactiveVal(_value_, newValue, props)
@@ -136,7 +136,7 @@ export const val = <V>(value: V): ReactiveValue<V> => ({
 function validateSources(_sources_: Array<Reactive>) {
   for (const _source_ of _sources_) {
     if (isDerive(_source_) && isDestroyed(_source_)) {
-      throw new Error("Fluid: cannot subscribe to destroyed source!")
+      throw new Error("reroi: cannot subscribe to destroyed source!")
     }
   }
 }

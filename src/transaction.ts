@@ -2,7 +2,7 @@
 
 import { _errorTransaction, _successTransaction } from "./symbols"
 import { _Reactive, _ReactiveTransaction, _ReactiveValue, NotificationType, ReactiveTransaction, ReactiveValue, TransactionError, TransactionState, TransactionSuccess } from "./type"
-import { isVal, notifyDeps, read } from "./fluid"
+import { isVal, notifyDeps, read } from "./reroi"
 import { flow, pipe } from "./lib/composition"
 import { PriorityPool } from "./priority"
 
@@ -59,7 +59,7 @@ function writeT<A, E, C = {}, ID extends string = string>(
   id?: ID,
 ): ReactiveTransaction<A, E, C, ID> {
   if (!isVal(_value_)) {
-    throw new Error("Fluid: You can write only to ReactiveValue created with Fluid.val!!!")
+    throw new Error("reroi: You can write only to ReactiveValue created with val!!!")
   }
   const _v_ = _value_ as _ReactiveValue<A>
 
@@ -212,7 +212,7 @@ function composeT<
     }
   }
   if (!dependencies) {
-    throw new Error("Fluid.transaction: empty transaction list!")
+    throw new Error("reroi.transaction: empty transaction list!")
   }
 
   const silentRun = <C extends Record<string, unknown>>(ctx: C = {} as C) => {
@@ -229,7 +229,7 @@ function composeT<
             }
             return resT.value.concat([[tr, res]])
           }
-          throw new Error("Fluid: inconsistent state of transaction")
+          throw new Error("reroi: inconsistent state of transaction")
         }),
       )
 

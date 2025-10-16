@@ -1,6 +1,6 @@
-# Reactive Fluid
+# reroi
 
-[![npm](https://img.shields.io/npm/v/reactive-fluid.svg)](https://www.npmjs.com/package/reactive-fluid)
+[![npm](https://img.shields.io/npm/v/reroi.svg)](https://www.npmjs.com/package/reroi)
 
 Zero-dependency library for creating reactive systems with maximum control.
 
@@ -9,39 +9,39 @@ Zero-dependency library for creating reactive systems with maximum control.
 - [Overview](#overview)
 - [Implementation](#implementation)
   - [Reactive type](#reactive-type)
-    - [Fluid.val: ReactiveValue](#fluidval-reactivevalue)
-    - [Fluid.derive: ReactiveDerivation](#fluidderive-reactivederivation)
-    - [Fluid.deriveAll: ReactiveDerivation of multiple sources](#fluidderiveall-reactivederivation-of-multiple-sources)
+    - [val: ReactiveValue](#val-reactivevalue)
+    - [derive: ReactiveDerivation](#derive-reactivederivation)
+    - [deriveAll: ReactiveDerivation of multiple sources](#deriveall-reactivederivation-of-multiple-sources)
   - [Reading and Writing](#reading-and-writing)
-    - [Fluid.write](#fluidwrite)
-    - [Fluid.read](#fluidread)
+    - [write](#write)
+    - [read](#read)
   - [Listening](#listening)
-    - [Fluid.listen](#fluidlisten)
-    - [Fluid.listenAll](#fluidlistenall)
+    - [listen](#listen)
+    - [listenAll](#listenall)
   - [Priorities](#priorities)
     - [Levels](#levels)
-    - [Fluid.priorities.before](#fluidprioritiesbefore)
-    - [Fluid.priorities.after](#fluidprioritiesafter)
+    - [priorities.before](#prioritiesbefore)
+    - [priorities.after](#prioritiesafter)
     - [Prioritization usage](#prioritization-usage)
 - [Transactions](#transactions)
   - [Transactional write](#transactional-write)
-    - [Fluid.transaction.write](#fluidtransactionwrite)
+    - [transaction.write](#transactionwrite)
     - [ReactiveTransaction](#reactivetransaction)
   - [Helper functions](#helper-functions)
-    - [Fluid.transaction.success](#fluidtransactionsuccess)
-    - [Fluid.transaction.error](#fluidtransactionerror)
-    - [Fluid.transaction.isSuccess](#fluidtransactionissuccess)
-    - [Fluid.transaction.isError](#fluidtransactioniserror)
-    - [Fluid.transaction.mapS](#fluidtransactionmaps)
-    - [Fluid.transaction.mapE](#fluidtransactionmape)
-    - [Fluid.transaction.fold](#fluidtransactionfold)
+    - [transaction.success](#transactionsuccess)
+    - [transaction.error](#transactionerror)
+    - [transaction.isSuccess](#transactionissuccess)
+    - [transaction.isError](#transactioniserror)
+    - [transaction.mapS](#transactionmaps)
+    - [transaction.mapE](#transactionmape)
+    - [transaction.fold](#transactionfold)
   - [Composing transactions](#composing-transactions)
     - [No changes applied until entire transaction is completed](#no-changes-applied-until-entire-transaction-is-completed)
     - [No changes applied if any transaction is error](#no-changes-applied-if-any-transaction-is-error)
-    - [Transaction context and Fluid.peek](#transaction-context-and-fluidpeek)
+    - [Transaction context and peek](#transaction-context-and-peek)
 - [Other Functions](#other-functions)
-  - [Fluid.peek](#fluidpeek)
-  - [Fluid.destroy](#fluiddestroy)
+  - [peek](#peek)
+  - [destroy](#destroy)
 - [Examples](#examples)
   - [React](#react)
     - [React connector](#react-connector)
@@ -49,9 +49,10 @@ Zero-dependency library for creating reactive systems with maximum control.
 
 ## Overview
 
-You can read the overview article here: [https://blog.pungy.me/articles/fluid]
+You can read the overview article here: [https://blog.pungy.me/articles/reroi]
 
-Every reactive system has defining characteristics that determine its behavior. Here is a list of them, along with how they are implemented in `Fluid`:
+Every reactive system has defining characteristics that determine its behavior.
+Here is a list of them, along with how they are implemented in `reroi`:
 
 - Execution flow: **Synchronous**
 - Change propagation: **Push-Based**
@@ -60,13 +61,13 @@ Every reactive system has defining characteristics that determine its behavior. 
 - Cycle dependencies: **Not handled automatically**
 - Transactions: **Fully supported**
 - Evaluation:
-  - [derivations](#fluidderive): **Lazy**
-  - [listeners](#fluidlisten): **Proactive**
+  - [derivations](#derive): **Lazy**
+  - [listeners](#listen): **Proactive**
 - Determinism: **Deterministic in practice, but might be non-deterministic due to caching and laziness**.
 
 ### Implementation
 
-The key features of `Fluid`:
+The key features of `reroi`:
 
 - Reactive entities are [Type Constructors](#reactive-type).
 - No side-effect subscription - You only subscribe to entities that you
@@ -78,40 +79,40 @@ into atomic operations that can be rolled back if any part fails.
 - High-Order Reactive Entities - reactive entities can contain other reactive
 entities, enabling complex and dynamic dataflow patterns.
 
-Here is a basic example of `Fluid`:
+Here is a basic example of `reroi`:
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _name_    = Fluid.val("Michal")
-const _surname_ = Fluid.val("Smith")
+const _name_    = R.val("Michal")
+const _surname_ = R.val("Smith")
 
-const _surnameUpper_ = Fluid.derive(_surname_, str => str.toUpperCase())
+const _surnameUpper_ = R.derive(_surname_, str => str.toUpperCase())
 
-const _fullName_ = Fluid.deriveAll(
+const _fullName_ = R.deriveAll(
     [_name_, _surnameUpper_],
     (name, surname) => name + " " + surname
 )
 
-console.log(Fluid.read(_fullName_)) // Michal Smith
+console.log(R.read(_fullName_)) // Michal Smith
 
-Fluid.listen(
+R.listen(
     _fullName_,
     fullName => console.log("Hello, " + fullName)
 )
 
-Fluid.write(_name_, "George")
+R.write(_name_, "George")
 // log: Hello, George SMITH
 
-console.log(Fluid.read(_name_)) // George
-console.log(Fluid.read(_fullName_)) // George SMITH
+console.log(R.read(_name_)) // George
+console.log(R.read(_fullName_)) // George SMITH
 ```
 
 The `_name_` and `_surname_` are `ReactiveValue<string>`. The `_fullName_` is
 `ReactiveDerivation<string>`. These can be generalized as: `type
 Reactive<A> = ReactiveValue<A> | ReactiveDerivation<A>`.
 
-`Fluid.listen` provides a way to proactively react to changes in any `Reactive` entity.
+`listen` provides a way to proactively react to changes in any `Reactive` entity.
 
 > Typically, variable names for reactive entities are wrapped with `_` around them. So, they kind of *float* on the *water* :))
 
@@ -128,37 +129,37 @@ need to unwrap it first. For example, you can unwrap a promise with `await`,
 like so:
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const reactive_a: Reactive<number> = Fluid.val(10)
+const reactive_a: Reactive<number> = R.val(10)
 const promise_a: Promise<number> = Promise.resolve(10)
 
 console.log(await promise_a) // 10
-console.log(Fluid.read(reactive_a)) // 10
+console.log(R.read(reactive_a)) // 10
 ```
 
 There are two types of reactive objects:
 
-- `Fluid.val` (Read-Write): Can be used with `Fluid.read` and `Fluid.write`.
-- `Fluid.derive` (Read-only): Can be used only with `Fluid.read`.
+- `R.val` (Read-Write): Can be used with `R.read` and `R.write`.
+- `R.derive` (Read-only): Can be used only with `R.read`.
 
 > NOTE: ReactiveValue and ReactiveDerivation do not have any internal
 > properties or methods. Every operation on them should use functions that
 > accept them as parameters.
 
-#### Fluid.val: ReactiveValue
+#### val: ReactiveValue
 
 `ReactiveValue` or `val` is an independent container with some value inside it.
-To read it, pass it to `Fluid.read` (which can also consume
-`ReactiveDerivation`). To modify it, set the new value with `Fluid.write`.
+To read it, pass it to `read` (which can also consume
+`ReactiveDerivation`). To modify it, set the new value with `write`.
 
 ```typescript
 function val<V>(value: V): ReactiveValue<V>;
 ```
 
-#### Fluid.derive: ReactiveDerivation
+#### derive: ReactiveDerivation
 
-The `ReactiveDerivation`, created with `Fluid.derive`, is a way to create a new
+The `ReactiveDerivation`, created with `derive`, is a way to create a new
 computed value derived from an existing `Reactive` entity.
 
 ```typescript
@@ -172,37 +173,37 @@ function derive<V, V2>(
 - **\_source\_**: A single reactive dependency we deriving from.
 - **computation**: A function that takes a single value, based on the source. The return value becomes the state of the derivation.
 - **props**:
-  - **priority**: See [priorities](#fluidpriorities). Default is `Fluid.priorities.base`.
+  - **priority**: See [priorities](#priorities). Default is `priorities.base`.
 
 The result of the derivation is cached between calls and recomputed only after dependency updates.
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _cost_ = Fluid.val(200)
-const _discounted_ = Fluid.derive(_cost_, cost => cost * 0.85) // 15% discount
+const _cost_ = R.val(200)
+const _discounted_ = R.derive(_cost_, cost => cost * 0.85) // 15% discount
 
-console.log(Fluid.read(_discounted_)) // 170, computed
-console.log(Fluid.read(_discounted_)) // 170, cached
+console.log(R.read(_discounted_)) // 170, computed
+console.log(R.read(_discounted_)) // 170, cached
 
-Fluid.write(_cost_, 100)
-Fluid.write(_cost_, 500)
+R.write(_cost_, 100)
+R.write(_cost_, 500)
 
 // 85 was ignored since not read
-console.log(Fluid.read(_discounted_)) // 425, computed
+console.log(R.read(_discounted_)) // 425, computed
 ```
 
 > NOTE: Derivation update is a **passive** listener, meaning the
 > **computation** is not called immediately after a dependency update, only
 > upon direct **reading**. For an active listener, use
-> [Fluid.listen](#fluid-listen).
+> [listen](#listen).
 
-> IMPORTANT EXCEPTION: If a derive is in the dependency list for Fluid.listen/listenAll,
+> IMPORTANT EXCEPTION: If a derive is in the dependency list for listen/listenAll,
 > it will be recomputed when the listener is about to execute.
 
-#### Fluid.deriveAll: ReactiveDerivation of multiple sources
+#### deriveAll: ReactiveDerivation of multiple sources
 
-The `ReactiveDerivation`, created with `Fluid.derive`, is a way to create a new
+The `ReactiveDerivation`, created with `derive`, is a way to create a new
 computed value derived from an existing `Reactive` entity.
 
 ```typescript
@@ -217,32 +218,31 @@ function deriveAll<Vs extends Array<unknown>, V2>(
 - **computation**: A function that takes a list of values from the
 dependencies, and returns a state of the derivation.
 - **props**:
-  - **priority**: See [priorities](#fluidpriorities). Default is `Fluid.priorities.base`.
+  - **priority**: See [priorities](#priorities). Default is `priorities.base`.
 
 ```typescript
-const _a_ = Fluid.val("a")
-const _b_ = Fluid.val("b")
-const _c_ = Fluid.val("c")
-const _d_ = Fluid.val("d")
-const _e_ = Fluid.val("e")
+const _a_ = val("a")
+const _b_ = val("c")
+const _d_ = val("d")
+const _e_ = val("e")
 
 const deps = [_a_, _b_, _c_, _d_, _e_]
-const _word_ = Fluid.deriveAll(deps, sources =>
+const _word_ = deriveAll(deps, sources =>
     sources.reduce((str, x) => str + x, ""))
 
-Fluid.read(_word_) // abcde
+read(_word_) // abcde
 
-const _f_ = Fluid.val(10)
+const _f_ = val(10)
 
-const _compound_ = Fluid.deriveAll([_e_, _f_], ([str, num]) =>
+const _compound_ = deriveAll([_e_, _f_], ([str, num]) =>
     str.toUpperCase() + ": " + num.toFixed(5))
 
-Fluid.read(_compound_) // E: 10.00000
+read(_compound_) // E: 10.00000
 ```
 
 ### Reading and Writing
 
-#### Fluid.write
+#### write
 
 ```typescript
 function write<A>(
@@ -259,39 +259,39 @@ function write<A>(
     a value producer.
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import { val, read, write } from 'reroi'
 
-const _x_ = Fluid.val(10)
+const _x_ = val(10)
 
-Fluid.write(_x_, 20)
-expect(Fluid.read(_x_)).toBe(20)
+write(_x_, 20)
+expect(read(_x_)).toBe(20)
 
-Fluid.write(_x_, x => x * 2)
-expect(Fluid.read(_x_)).toBe(40)
+write(_x_, x => x * 2)
+expect(read(_x_)).toBe(40)
 
 // LiterateFn
-const _lazyX_ = Fluid.val(() => 10)
+const _lazyX_ = val(() => 10)
 const x20 = () => 20
-Fluid.write(_lazyX_, x20, { literateFn: true })
+write(_lazyX_, x20, { literateFn: true })
 
-expect(Fluid.read(_lazyX_)).toBe(x20)
+expect(read(_lazyX_)).toBe(x20)
 ```
 
-`Fluid.write` has no memoization, and even if you write the same value
+`write` has no memoization, and even if you write the same value
 repeatedly, it will always propagate changes to dependencies:
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import { val, write, listen } from 'reroi'
 
-const _x_ = Fluid.val(5)
-Fluid.listen(_x_, x => console.log(`I'm on ${x}`))
+const _x_ = val(5)
+listen(_x_, x => console.log(`I'm on ${x}`))
 
-Fluid.write(_x_, 10) // I'm on 10
-Fluid.write(_x_, 10) // I'm on 10
-Fluid.write(_x_, 10) // I'm on 10
+write(_x_, 10) // I'm on 10
+write(_x_, 10) // I'm on 10
+write(_x_, 10) // I'm on 10
 ```
 
-#### Fluid.read
+#### read
 
 ```typescript
 function read<V>(_reactive_: Reactive<V>): V;
@@ -302,7 +302,7 @@ function read<V>(_reactive_: Reactive<V>): V;
 
 ### Listening
 
-#### Fluid.listen
+#### listen
 
 Active listener with side effects on single dependency:
 
@@ -320,12 +320,12 @@ function listen<V>(
 - **sideEffect**: An effect called on update of the source. `sideEffect`
 is called on **every** dependency update.
 - **props**:
-  - **priority**: See [priorities](#fluidpriorities). Default is
-    `Fluid.priorities.base`.
+  - **priority**: See [priorities](#priorities). Default is
+    `priorities.base`.
   - **immediate**: Call the listen effect upon declaration. Default is
     `false`.
 
-#### Fluid.listenAll
+#### listenAll
 
 Active listener with side effects:
 
@@ -342,35 +342,35 @@ function listenAll<Vs extends Array<unknown>, V2>(
 - **\_sources\_**: A list of dependencies.
 - **sideEffect**: An effect to be called on update of dependencies.
 - **props**:
-  - **priority**: See [priorities](#fluidpriorities). Default is
-    `Fluid.priorities.base`.
+  - **priority**: See [priorities](#priorities). Default is
+    `priorities.base`.
   - **immediate**: Call the listen effect upon declaration. Default is
     `false`.
 
 ### Priorities
 
 For details on controlling evaluation order with prioritization, read here:
-[controlling evaluation order](https://blog.pungy.me/articles/fluid#1-controlling-evaluation-order)
+[controlling evaluation order](https://blog.pungy.me/articles/reroi#1-controlling-evaluation-order)
 
-Basically, `Fluid` **DOES NOT** automatically resolve issues with evaluation
+Basically, `reroi` **DOES NOT** automatically resolve issues with evaluation
 order. If your derivation or listener subscribes to a source more than once
 (e.g., implicitly through a chain), it will update **multiple times**.
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _price_ = Fluid.val(0)
+const _price_ = R.val(0)
 
-const _tax_ = Fluid.derive(
+const _tax_ = R.derive(
   _price_,
   price => price * 0.08, // 8% tax
 )
-const _shipping_ = Fluid.derive(
+const _shipping_ = R.derive(
   _price_,
   price => price > 50 ? 0 : 5.00, // free shipping over $50
 )
 
-Fluid.listenAll(
+R.listenAll(
     [_price_, _tax_, _shipping_],
     ([price, tax, shipping]) => {
         const total = price + tax + shipping
@@ -378,7 +378,7 @@ Fluid.listenAll(
     }
 )
 
-Fluid.write(_price_, 20.00)
+R.write(_price_, 20.00)
 // Final price: $26.60 (incl. tax: $1.60, shipping: $5.00)
 // Would be logged THREE TIMES
 ```
@@ -394,15 +394,15 @@ its sources.
 The fixed solution looks like this:
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-Fluid.listen(
+R.listen(
     _price_, // We only need to subscribe to the root dependency.
     (price) => {
-        const total = price + Fluid.read(_tax_) + Fluid.read(_shipping_)
+        const total = price + R.read(_tax_) + R.read(_shipping_)
         console.log(`Final price: $${total.toFixed(2)} (incl. tax: $${tax.toFixed(2)}, shipping: $${shipping.toFixed(2)})`)
     },
-    { priority: Fluid.priorities.after(Fluid.priorities.base) },
+    { priority: R.priorities.after(R.priorities.base) },
 )
 ```
 
@@ -423,24 +423,24 @@ The listener executes **after** shipping and tax.
 
 A priority level is essentially a number. There are three default levels:
 
-- **Fluid.priorities.highest**: Maximum priority level, executed **before all** others.
-- **Fluid.priorities.base**: Default priority for dependencies, equivalent to
+- **priorities.highest**: Maximum priority level, executed **before all** others.
+- **priorities.base**: Default priority for dependencies, equivalent to
 `0`.
-- **Fluid.priorities.lowest**: Opposite of `highest` - executed **after all**
+- **priorities.lowest**: Opposite of `highest` - executed **after all**
 others.
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import { val, listen } from 'reroi'
 
-const _msg_ = Fluid.val("")
+const _msg_ = val("")
 const log = console.log
 
-Fluid.listen(_msg_, (msg) => log("3: " + msg), { priority: 3 })
-Fluid.listen(_msg_, (msg) => log("2: " + msg), { priority: 2 })
-Fluid.listen(_msg_, (msg) => log("4: " + msg), { priority: 4 })
-Fluid.listen(_msg_, (msg) => log("1: " + msg), { priority: 1 })
+listen(_msg_, (msg) => log("3: " + msg), { priority: 3 })
+listen(_msg_, (msg) => log("2: " + msg), { priority: 2 })
+listen(_msg_, (msg) => log("4: " + msg), { priority: 4 })
+listen(_msg_, (msg) => log("1: " + msg), { priority: 1 })
 
-Fluid.write(_msg_, "Hi?")
+write(_msg_, "Hi?")
 
 // 4: Hi?
 // 3: Hi?
@@ -455,7 +455,7 @@ No priority should be higher than `highest`, neither lower than `lowest`.
 
 `2000` of levels should be enough for all ;)
 
-#### Fluid.priorities.before
+#### priorities.before
 
 ```typescript
 function before(p0: ReactiveDerivation<unknown> | Priority): Priority;
@@ -465,7 +465,7 @@ Helper function that provides a priority **higher** than the one passed as an
 argument. You can also pass a derivation, meaning your priority will be
 **higher** than that of the derivation.
 
-#### Fluid.priorities.after
+#### priorities.after
 
 ```typescript
 function after(p0: ReactiveDerivation<unknown> | Priority): Priority;
@@ -477,18 +477,18 @@ one passed.
 #### Prioritization usage
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const base = Fluid.priorities.base
+const base = R.priorities.base
 
-expect(Fluid.priorities.before(base)).toBe(1)
-expect(Fluid.priorities.after(base)).toBe(-1)
+expect(R.priorities.before(base)).toBe(1)
+expect(R.priorities.after(base)).toBe(-1)
 
-const _a_ = Fluid.val(0)
-const _der1_ = Fluid.derive(_a_, a => a + 1, { priority: 15 })
+const _a_ = R.val(0)
+const _der1_ = R.derive(_a_, a => a + 1, { priority: 15 })
 
-expect(Fluid.priorities.before(_der1_)).toBe(16)
-expect(Fluid.priorities.after(_der1_)).toBe(14)
+expect(R.priorities.before(_der1_)).toBe(16)
+expect(R.priorities.after(_der1_)).toBe(14)
 ```
 
 Rather than memorizing numerical directions, use the helpers :)
@@ -496,11 +496,11 @@ Rather than memorizing numerical directions, use the helpers :)
 ## Transactions
 
 For an overview of transactions, read here:
-[transactions](https://blog.pungy.me/articles/fluid#2-transactions).
+[transactions](https://blog.pungy.me/articles/reroi#2-transactions).
 
 ### Transactional write
 
-#### Fluid.transaction.write
+#### transaction.write
 
 The function interface for `transaction.write` is complex due to compositional
 transactions:
@@ -531,12 +531,12 @@ transaction context, or a plain value to resolve the transaction with.
 - **id**: Optional ID of the transaction.
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import { val, transaction, read } from 'reroi'
 
-const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, 'A')
+const _a_ = val('a')
+const tr = transaction.write(_a_, 'A')
 
-expect(Fluid.read(_a_)).toBe('a')
+expect(read(_a_)).toBe('a')
 ```
 
 #### ReactiveTransaction
@@ -555,18 +555,18 @@ export interface ReactiveTransaction<
 ```
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, 'A')
+const _a_ = R.val('a')
+const tr = R.transaction.write(_a_, 'A')
 
 tr.run();
-expect(Fluid.read(_a_)).toBe('A')
+expect(R.read(_a_)).toBe('A')
 ```
 
 ### Helper functions
 
-#### Fluid.transaction.success
+#### transaction.success
 
 Use this inside a `TransactionFN` to produce a success value to be written to
 the `ReactiveValue`.
@@ -577,16 +577,16 @@ const success = <R>(value: R): TransactionSuccess<R> => ({
 ```
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.success('A'))
+const _a_ = R.val('a')
+const tr = R.transaction.write(_a_, () => R.transaction.success('A'))
 
 tr.run();
-expect(Fluid.read(_a_)).toBe('A')
+expect(R.read(_a_)).toBe('A')
 ```
 
-#### Fluid.transaction.error
+#### transaction.error
 
 Use this inside a `TransactionFN` to reject the transaction execution.
 
@@ -596,16 +596,16 @@ function error<E>(error: E): TransactionError<E>
 ```
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.error('A'))
+const _a_ = R.val('a')
+const tr = R.transaction.write(_a_, () => R.transaction.error('A'))
 
 tr.run();
-expect(Fluid.read(_a_)).toBe('a')
+expect(R.read(_a_)).toBe('a')
 ```
 
-#### Fluid.transaction.isSuccess
+#### transaction.isSuccess
 
 Checks whether the transaction result was success.
 
@@ -614,20 +614,20 @@ function isSuccess<R, E>(transaction: TransactionState<R, E>): transaction is Tr
 ```
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.success('A'))
+const _a_ = R.val('a')
+const tr = R.transaction.write(_a_, () => R.transaction.success('A'))
 
 const state = tr.run();
-expect(Fluid.transaction.isSuccess(state)).toBe(true)
+expect(R.transaction.isSuccess(state)).toBe(true)
 
-if (Fluid.transaction.isSuccess(state)) {
+if (R.transaction.isSuccess(state)) {
     console.log(state.value) // 'A'
 }
 ```
 
-#### Fluid.transaction.isError
+#### transaction.isError
 
 Checks whether the transaction result was error.
 
@@ -636,23 +636,23 @@ function isError<R, E>(transaction: TransactionState<R, E>): transaction is Tran
 ```
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.error('A'))
+const _a_ = R.val('a')
+const tr = R.transaction.write(_a_, () => R.transaction.error('A'))
 
 const state = tr.run();
-expect(Fluid.transaction.isError(state)).toBe(true)
+expect(R.transaction.isError(state)).toBe(true)
 
-if (Fluid.transaction.isError(state)) {
+if (R.transaction.isError(state)) {
     console.log(state.error) // 'A'
 }
 ```
 
-#### Fluid.transaction.mapS
+#### transaction.mapS
 
 > The following utilities are optional and provide a more functional
-> programming flavor to Fluid :)
+> programming flavor to reroi :)
 
 > Transaction is essentially an `IO (Either E R)` ADT with Functor and Foldable
 > type classes.
@@ -661,51 +661,51 @@ Maps `TransactionSuccess<R>` to `TransactionSuccess<R2>`. Can be used to
 *peek* into a success transaction's value.
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.success('A'))
+const _a_ = R.val('a')
+const tr = R.transaction.write(_a_, () => R.transaction.success('A'))
 
-const beautify = Fluid.transaction.mapS((value: string) => `I was success with: "${value}"`)
+const beautify = R.transaction.mapS((value: string) => `I was success with: "${value}"`)
 
 const state = beautify(tr.run())
 
-if (Fluid.transaction.isSuccess(state)) {
+if (R.transaction.isSuccess(state)) {
     console.log(state.value) // I was success with: "A"
 }
 ```
 
-#### Fluid.transaction.mapE
+#### transaction.mapE
 
 Maps `TransactionError<E>` to `TransactionError<E2>`.
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _a_ = Fluid.val('a')
-const tr = Fluid.transaction.write(_a_, () => Fluid.transaction.error('A'))
+const _a_ = R.val('a')
+const tr = R.transaction.write(_a_, () => R.transaction.error('A'))
 
-const beautify = Fluid.transaction.mapE(error => `I was rejected with: "${error}"`)
+const beautify = R.transaction.mapE(error => `I was rejected with: "${error}"`)
 
 const state = beautify(tr.run())
 
-if (Fluid.transaction.isError(state)) {
+if (R.transaction.isError(state)) {
     console.log(state.error) // I was error with: "A"
 }
 ```
 
-#### Fluid.transaction.fold
+#### transaction.fold
 
 Folds or reduces the transaction result into a single value.
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _a_ = Fluid.val('a')
-const trS = Fluid.transaction.write(_a_, () => Fluid.transaction.success('A'))
-const trE = Fluid.transaction.write(_a_, () => Fluid.transaction.error('A'))
+const _a_ = R.val('a')
+const trS = R.transaction.write(_a_, () => R.transaction.success('A'))
+const trE = R.transaction.write(_a_, () => R.transaction.error('A'))
 
-const toBoolean = Fluid.transaction.fold(
+const toBoolean = R.transaction.fold(
     () => false, // on error 
     () => true,  // on success
 )
@@ -719,18 +719,18 @@ console.log(toBoolean(trE.run())) // false
 The key strength of transactions is composition. You can combine multiple transactions into a single one, preserving atomicity and other transactional properties.
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _name_ = Fluid.val("George")
-const _surname_ = Fluid.val("Kowalski")
+const _name_ = R.val("George")
+const _surname_ = R.val("Kowalski")
 
-Fluid.listenAll([_name_, _surname_], ([name, surname]) => {
+R.listenAll([_name_, _surname_], ([name, surname]) => {
     console.log(`Hello, ${name} ${surname}!`)
 })
 
-const tr = Fluid.transaction.compose(
-               Fluid.transaction.write(_name_, "Grzegosz"),
-               Fluid.transaction.write(_surname_, "Smith"),
+const tr = R.transaction.compose(
+               R.transaction.write(_name_, "Grzegosz"),
+               R.transaction.write(_surname_, "Smith"),
            )
 
 tr.run()
@@ -743,24 +743,24 @@ tr.run()
 Even if one part of the transaction completes, no values are written until the entire transaction finishes:
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _a_ = Fluid.val("a")
-const _b_ = Fluid.val("b")
-const _c_ = Fluid.val("c")
+const _a_ = R.val("a")
+const _b_ = R.val("b")
+const _c_ = R.val("c")
 
-const _A_ = Fluid.derive(_a_, (a) => a.toUpperCase())
+const _A_ = R.derive(_a_, (a) => a.toUpperCase())
 
-const tr = Fluid.transaction.compose(
-    Fluid.transaction.write(_a_, "F"),
-    Fluid.transaction.write(_b_, () => {
-        console.log(Fluid.read(_a_)) // a
-        console.log(Fluid.read(_A_)) // A
-        return Fluid.transaction.success("B")
+const tr = R.transaction.compose(
+    R.transaction.write(_a_, "F"),
+    R.transaction.write(_b_, () => {
+        console.log(R.read(_a_)) // a
+        console.log(R.read(_A_)) // A
+        return R.transaction.success("B")
     }),
-    Fluid.transaction.write(_c_, () => {
-        console.log(Fluid.read(_b_)) // b
-        return Fluid.transaction.success("C")
+    R.transaction.write(_c_, () => {
+        console.log(R.read(_b_)) // b
+        return R.transaction.success("C")
     }),
 )
 ```
@@ -768,25 +768,25 @@ const tr = Fluid.transaction.compose(
 #### No changes applied if any transaction is error
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _a_ = Fluid.val("a")
-const _b_ = Fluid.val("b")
-const _c_ = Fluid.val("c")
+const _a_ = R.val("a")
+const _b_ = R.val("b")
+const _c_ = R.val("c")
 
-Fluid.listen(_a_, console.log)
-Fluid.listen(_b_, console.log)
-Fluid.listen(_c_, console.log)
+R.listen(_a_, console.log)
+R.listen(_b_, console.log)
+R.listen(_c_, console.log)
 
-const tr = Fluid.transaction.compose(
-    Fluid.transaction.write(_a_, "A"),
-    Fluid.transaction.write(_b_, () => Fluid.transaction.error("error")),
-    Fluid.transaction.write(_c_, "C"),
+const tr = R.transaction.compose(
+    R.transaction.write(_a_, "A"),
+    R.transaction.write(_b_, () => R.transaction.error("error")),
+    R.transaction.write(_c_, "C"),
 )
 
 tr.run()
 
-console.log(Fluid.read(_a_)) // logs: 'a' // Wasn't changed
+console.log(R.read(_a_)) // logs: 'a' // Wasn't changed
 // No console logs from `listen` reactions
 ```
 
@@ -796,39 +796,39 @@ questions:
 1. How to access new values from previously success actions?
 2. How to compute a derivation's new state?
 
-The answers involve transaction context and `Fluid.peek`.
+The answers involve transaction context and `peek`.
 
-#### Transaction context and Fluid.peek
+#### Transaction context and peek
 
 During execution, the `ctx` parameter (second argument in the handler for
-`Fluid.transaction.write`) provides access to context. Assign an `id` to
+`transaction.write`) provides access to context. Assign an `id` to
 actions to identify values in the context.
 
-`Fluid.peek` allows previewing how a derivation's value **would** look based on
-provided dependency values. It calls the inner function of `Fluid.derive`
+`peek` allows previewing how a derivation's value **would** look based on
+provided dependency values. It calls the inner function of `derive`
 without affecting the derivation.
 
 The API is more complex, but it enables true transactional behavior.
 
 ```typescript
-import { Fluid } from 'reactive-fluid'
+import * as R from 'reroi'
 
-const _name_ = Fluid.val("George")
-const _surname_ = Fluid.val("Kowalski")
-const _fullName_ = Fluid.deriveAll(
+const _name_ = R.val("George")
+const _surname_ = R.val("Kowalski")
+const _fullName_ = R.deriveAll(
     [_name_, _surname_],
     ([name, surname]) => name + " " + surname
 )
 
-const _messagePool_ = Fluid.val<Array<string>>([])
+const _messagePool_ = R.val<Array<string>>([])
 
 const addPerson = (name, surname) => (
-    Fluid.transaction.compose(
-        //                      r_val   val   id
-        Fluid.transaction.write(_name_, name, "name"),
-        Fluid.transaction.write(_surname_, surname, "surname"),
-        Fluid.transaction.write(_messagePool_, (pool, ctx) => {
-            const fullName = Fluid.peek(_fullName_, [ctx.name, ctx.surname])
+    R.transaction.compose(
+        //                  r_val   val   id
+        R.transaction.write(_name_, name, "name"),
+        R.transaction.write(_surname_, surname, "surname"),
+        R.transaction.write(_messagePool_, (pool, ctx) => {
+            const fullName = R.peek(_fullName_, [ctx.name, ctx.surname])
 
             pool.push(`The user "${fullName}" has been added!`)
             return pool
@@ -839,13 +839,13 @@ const addPerson = (name, surname) => (
 addPerson("Oda", "Nobunaga").run()
 
 console.log(
-    Fluid.read(_messagePool_).at(-1) // The user "Oda Nobunaga" has been added!
+    R.read(_messagePool_).at(-1) // The user "Oda Nobunaga" has been added!
 )
 ```
 
 ## Other Functions
 
-### Fluid.peek
+### peek
 
 Reads a derive with dependencies provided as a list in the second parameter.
 Completely pure and does not affect the `derivation` in any way.
@@ -854,13 +854,13 @@ Completely pure and does not affect the `derivation` in any way.
 function peek<R extends ReactiveDerivation>(_derive_: R, dependencies: R['dependencies']): R['value'];
 ```
 
-### Fluid.destroy
+### destroy
 
 You may need to destroy a derivation so it no longer reacts to changes (and no
 one reacts to its changes).
 
 To ensure all links are cleared and avoid garbage accumulation, use
-`Fluid.destroy`.
+`destroy`.
 
 ```typescript
 function destroy(
@@ -873,24 +873,26 @@ last dependency, dependents are cascadedly destroyed.
 
 ## Examples
 
-List of complete examples of `Fluid` usage.
+List of complete examples of `reroi` usage.
 
 ### React
 
-To connect `Fluid` with React, create a custom hook: `useReactive` (this could become a separate package).
+To connect `reroi` with React, create a custom hook: `useReactive` (this could become a separate package).
 
 #### React connector
 
-The `useReactive` hook listens to updates from `_reactive_`, stores the value in a ref, and forces a state update (since `useState` memoizes identical values, which `Fluid` does not).
+The `useReactive` hook listens to updates from `_reactive_`, stores the value
+in a ref, and forces a state update (since `useState` memoizes identical
+values, which `reroi` does not).
 
 ```typescript
 import { useEffect, useReducer, useRef } from "react";
-import { Fluid, Reactive } from "reactive-fluid";
+import { Reactive, listen } from "reroi";
 
 export function useReactive<V>(_reactive_: Reactive<V>): V {
   const [, forceUpdate] = useReducer(() => [], [])
-  const listener = useRef<ReturnType<typeof Fluid.listen> | null>(null)
-  const value = useRef(Fluid.read(_reactive_))
+  const listener = useRef<ReturnType<typeof listen> | null>(null)
+  const value = useRef(R.read(_reactive_))
 
   useEffect(
     () => {
@@ -899,7 +901,7 @@ export function useReactive<V>(_reactive_: Reactive<V>): V {
         listener.current()
       }
 
-      listener.current = Fluid.listen(
+      listener.current = listen(
         _reactive_,
         v => {
           value.current = v
@@ -915,7 +917,7 @@ export function useReactive<V>(_reactive_: Reactive<V>): V {
 }
 ```
 
-Based on this hook, `Fluid` serves as an effective state manager. Here is an example.
+Based on this hook, `reroi` serves as an effective state manager. Here is an example.
 
 #### Shopping Cart
 

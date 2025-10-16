@@ -1,5 +1,5 @@
 {
-  "name": "reactive-fluid",
+  "name": "reroi",
   "private": false,
   "version": "0.2.1",
   "description": "Library for creating reactive systems with maximum control.",
@@ -13,15 +13,15 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PunGy/fluid.git"
+    "url": "git+https://github.com/PunGy/reroi.git"
   },
   "type": "module",
-  "module": "./dist/reactive-fluid.js",
+  "module": "./dist/reroi.js",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/reactive-fluid.js",
-      "require": "./dist/reactive-fluid.cjs"
+      "import": "./dist/reroi.js",
+      "require": "./dist/reroi.cjs"
     },
     "./dist/": {
       "import": "./dist/",
