@@ -1,6 +1,6 @@
 import { SparseArray } from "./lib/sparseArray"
 import { phighest, plowest } from "./symbols"
-import type { Priorities, Priority, ReactiveDerivation, Pool, _ReactiveDerivation } from "./type"
+import type { Priorities, Priority, ReactiveDerivation, Pool, _ReactiveDerivation, _ReactiveListener } from "./type"
 
 export class PriorityPool extends SparseArray<Pool> {
   getOrMake(index: Priority): Pool {
@@ -10,6 +10,20 @@ export class PriorityPool extends SparseArray<Pool> {
       this.push(pool, index)
     }
     return pool
+  }
+
+  subscribe(index: Priority, listener: _ReactiveListener) {
+    this.getOrMake(index).add(listener)
+  }
+
+  unsubscribe(index: Priority, listener: _ReactiveListener) {
+    const pool = this.get(index)
+    if (!pool) return
+
+    pool.delete(listener)
+    if (pool.size === 0) {
+      this.delete(index)
+    }
   }
 
   /**
@@ -23,22 +37,36 @@ export class PriorityPool extends SparseArray<Pool> {
    */
   static merge(p1: PriorityPool, p2: PriorityPool) {
     const result = new PriorityPool()
+    const priorities = new Map<_ReactiveListener, Priority>()
 
-    // put entire p1 to result
-    p1.forEachBackward((pool, priority) => {
-      result.push(pool, priority)
-    })
-    p2.forEachBackward((pool, priority) => {
-      const p = result.get(priority)
-      if (p) {
-        result.push(p.union(pool), priority)
-      } else {
-        result.push(pool, priority)
+    const collect = (pool: Pool, priority: Priority) => {
+      for (const listener of pool) {
+        const current = priorities.get(listener)
+        if (current === undefined || priority > current) {
+          priorities.set(listener, priority)
+        }
       }
-    })
+    }
+
+    p1.forEach(collect)
+    p2.forEach(collect)
+
+    for (const [listener, priority] of priorities) {
+      result.subscribe(priority, listener)
+    }
 
     return result
   }
+}
+
+export const validatePriority = (priority: Priority): Priority => {
+  if (!Number.isFinite(priority)) {
+    throw new Error("reroi: priority must be a finite number")
+  }
+  if (priority < plowest || priority > phighest) {
+    throw new Error(`reroi: priority must be between ${plowest} and ${phighest}`)
+  }
+  return priority
 }
 
 export const priorities: Priorities = {
@@ -60,6 +88,7 @@ export const priorities: Priorities = {
       p = (p0 as _ReactiveDerivation).priority
     }
 
+    validatePriority(p)
     if (p >= this.highest) {
       throw new Error("reroi: Cannot use 'before' with priority bigger then the highest!")
     }
@@ -81,6 +110,7 @@ export const priorities: Priorities = {
       p = (p0 as _ReactiveDerivation).priority
     }
 
+    validatePriority(p)
     if (p <= this.lowest) {
       throw new Error("reroi: Cannot use 'after' with priority lower then the lowest!")
     }

@@ -68,6 +68,42 @@ describe("SparseArray", () => {
     expect(arr.toArray()).toEqual(["A", "b", "c"])
   })
 
+  it("replaces the only value without corrupting links", () => {
+    const arr = new SparseArray<string>()
+    arr.push("old")
+    arr.push("new", 0)
+
+    expect(arr.first).toBe("new")
+    expect(arr.last).toBe("new")
+    expect(arr.toArray()).toEqual(["new"])
+
+    arr.push("next")
+
+    expect(arr.toArray()).toEqual(["new", "next"])
+    expect(arr.get(1)).toBe("next")
+  })
+
+  it("keeps both directions valid after deleting boundaries", () => {
+    const arr = new SparseArray<string>()
+    arr.push("a", -1)
+    arr.push("b", 0)
+    arr.push("c", 1)
+
+    arr.delete(1)
+    expect(arr.last).toBe("b")
+    expect(arr.toArray()).toEqual(["a", "b"])
+
+    arr.delete(-1)
+    expect(arr.first).toBe("b")
+    expect(arr.toArray()).toEqual(["b"])
+
+    arr.delete(0)
+    expect(arr.isEmpty).toBe(true)
+
+    arr.push("fresh")
+    expect(arr.toArray()).toEqual(["fresh"])
+  })
+
   it("properly goes forward", () => {
     const arr = new SparseArray<number>()
 

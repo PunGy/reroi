@@ -2,23 +2,23 @@
  * Reactive system libary
  */
 
-import { priorities, PriorityPool } from "./priority"
+import { priorities, PriorityPool, validatePriority } from "./priority"
 import { _rder, _rval, nullCache } from "./symbols"
 import { _Reactive, _ReactiveDerivation, _ReactiveListener, _ReactiveValue, NotificationType, Priority, Reactive, ReactiveDerivation, ReactiveValue } from "./type"
 
 
 export function isVal<V>(_value_: Reactive<V>): _value_ is _ReactiveValue<V>
-export function isVal(smth: unknown): false
+export function isVal(_value_: unknown): _value_ is _ReactiveValue<unknown>
 export function isVal<V>(_value_: Reactive<V> | any): _value_ is _ReactiveValue<V> {
   return typeof _value_ === "object" && _value_ !== null && "__tag" in _value_ && _value_.__tag === _rval
 }
 export function isDerive<V>(_value_: Reactive<V>): _value_ is _ReactiveDerivation<V>
-export function isDerive(smth: unknown): false
+export function isDerive(_value_: unknown): _value_ is _ReactiveDerivation<unknown>
 export function isDerive<V>(_value_: Reactive<V> | any): _value_ is _ReactiveDerivation<V> {
   return typeof _value_ === "object" && _value_ !== null && "__tag" in _value_ && _value_.__tag === _rder
 }
 
-export const notifyDeps = (_r_: _Reactive, type: NotificationType) => {
+const notifyPool = (dependencies: PriorityPool, source: _Reactive, type: NotificationType) => {
   const stack: Array<_ReactiveListener> = []
 
   function fill(dependencies: PriorityPool) {
@@ -26,15 +26,30 @@ export const notifyDeps = (_r_: _Reactive, type: NotificationType) => {
       stack.push(...[...r].reverse())
     })
   }
-  fill(_r_.dependencies)
+  fill(dependencies)
 
   while (stack.length > 0) {
     const reactive = stack.pop()!
-    reactive._onMessage(_r_, type)
+    reactive._onMessage(source, type)
     if (reactive.dependencies && !reactive.dependencies.isEmpty) {
       fill(reactive.dependencies)
     }
   }
+}
+
+export const notifyDeps = (_r_: _Reactive, type: NotificationType) => {
+  notifyPool(_r_.dependencies, _r_, type)
+}
+
+export const notifyAll = (_reactives_: ReadonlyArray<_Reactive>, type: NotificationType) => {
+  if (_reactives_.length === 0) return
+
+  let dependencies = new PriorityPool()
+  for (const _reactive_ of _reactives_) {
+    dependencies = PriorityPool.merge(dependencies, _reactive_.dependencies)
+  }
+
+  notifyPool(dependencies, _reactives_[0]!, type)
 }
 
 // Utilities // Operations
@@ -50,24 +65,28 @@ export const read = <V>(_reactive_: Reactive<V>): V => {
     return _reactive_.value
   }
   if (isDerive(_reactive_)) {
-    if (isDestroyed(_reactive_)) {
-      throw new Error("reroi: cannot read destroyed derivation!")
+    if (_reactive_._cache !== nullCache) {
+      return _reactive_._cache
     }
-    return _reactive_._cache === nullCache
-      ? _reactive_.value()
-      : _reactive_._cache
+    if (_reactive_._destroyed) {
+      throw new Error("reroi: cannot read a destroyed derivation that has no cached value")
+    }
+    return _reactive_.value()
   }
 
   throw new Error("reroi: you can read only reactive entities!")
 }
 
 export const peek = <R extends ReactiveDerivation<unknown>>(_derive_: R, dependencies: NonNullable<R["__meta_dependencies"]>): R["__value"] => {
-  // @ts-expect-error TODO: fix polymorphic dependency type
-  return (_derive_ as _ReactiveDerivation).fn(dependencies)
+  if (!isDerive(_derive_)) {
+    throw new Error("reroi: peek expects a ReactiveDerivation")
+  }
+  // @ts-expect-error Internal dependency tuples are intentionally erased here.
+  return (_derive_ as _ReactiveDerivation)._peek(dependencies)
 }
 
-export const mutateReactiveVal = <A>(_value_: ReactiveValue<A>, newValue: A | ((v: A) => A), props?: { literateFn?: boolean }) => {
-  (_value_ as _ReactiveValue<A>).value = props?.literateFn
+export const mutateReactiveVal = <A>(_value_: ReactiveValue<A>, newValue: A | ((v: A) => A), props?: { literalFn?: boolean }) => {
+  (_value_ as _ReactiveValue<A>).value = props?.literalFn
     ? newValue as A
     : typeof newValue === "function"
       ? (newValue as (a: A) => A)(read(_value_))
@@ -82,17 +101,17 @@ export const mutateReactiveVal = <A>(_value_: ReactiveValue<A>, newValue: A | ((
 export function write<A>(
   _value_: ReactiveValue<A>,
   newValue: A,
-  props: { literateFn: true },
+  props: { literalFn: true },
 ): ReactiveValue<A>;
 export function write<A>(
   _value_: ReactiveValue<A>,
   newValue: A | ((aVal: A) => A),
-  props?: { literateFn?: boolean },
+  props?: { literalFn?: boolean },
 ): ReactiveValue<A>;
 export function write<A>(
   _value_: ReactiveValue<A>,
   newValue: A | ((aVal: A) => A),
-  props?: { literateFn?: boolean },
+  props?: { literalFn?: boolean },
 ): ReactiveValue<A> {
   if (!isVal(_value_)) {
     throw new Error("reroi: You can write only to ReactiveValue created with reroi.val!!!")
@@ -110,10 +129,16 @@ export function write<A>(
   * but it would be unsubscribed from all entities it listen to.
   */
 export const destroy = (_derive_: ReactiveDerivation<unknown>) => {
+  if (!isDerive(_derive_)) {
+    throw new Error("reroi: destroy expects a ReactiveDerivation")
+  }
   (_derive_ as _ReactiveDerivation<unknown>)._destroy()
 }
 
 export const isDestroyed = (_derive_: ReactiveDerivation<unknown>): boolean => {
+  if (!isDerive(_derive_)) {
+    throw new Error("reroi: isDestroyed expects a ReactiveDerivation")
+  }
   return (_derive_ as _ReactiveDerivation<unknown>)._destroyed
 }
 
@@ -133,8 +158,11 @@ export const val = <V>(value: V): ReactiveValue<V> => ({
 
 // Reactive // derive
 
-function validateSources(_sources_: Array<Reactive>) {
+function validateSources(_sources_: ReadonlyArray<Reactive>) {
   for (const _source_ of _sources_) {
+    if (!isVal(_source_) && !isDerive(_source_)) {
+      throw new Error("reroi: dependencies must be reactive entities")
+    }
     if (isDerive(_source_) && isDestroyed(_source_)) {
       throw new Error("reroi: cannot subscribe to destroyed source!")
     }
@@ -145,27 +173,33 @@ interface DeriveProps {
   priority?: Priority
 }
 
+const getPriority = (props?: DeriveProps) => validatePriority(props?.priority ?? priorities.base)
+
 export function derive<V, V2>(
   _reactive_: Reactive<V>,
   fn: (value: V) => V2,
   props?: DeriveProps,
 ): ReactiveDerivation<V2, [V]> {
   validateSources([_reactive_])
-  const priority = props?.priority ?? priorities.base
+  const priority = getPriority(props)
+  let source: _Reactive<V> | null = _reactive_ as _Reactive<V>
 
   const derived: _ReactiveDerivation<V2> = {
     __tag: _rder,
     _destroy() {
-      const pool = (_reactive_ as _Reactive).dependencies.get(this.priority)
-      if (pool) {
-        pool.delete(this)
-      }
+      if (this._destroyed) return
+
+      const currentSource = source
+      source = null
+      currentSource?.dependencies.unsubscribe(this.priority, this)
+      this._destroyed = true
       notifyDeps(this, NotificationType.SOURCE_DESTROYED)
       this.dependencies.clear()
-      this._destroyed = true
     },
     _cache: nullCache,
     _onMessage(_: _Reactive, type: NotificationType) {
+      if (this._destroyed) return
+
       switch (type) {
       case NotificationType.UPDATE:
         derived._cache = nullCache
@@ -177,6 +211,9 @@ export function derive<V, V2>(
     },
     // @ts-expect-error TODO: fix encapsulation
     fn,
+    _peek(values) {
+      return fn(values[0] as V)
+    },
     priority,
     dependencies: new PriorityPool(),
     value() {
@@ -189,11 +226,13 @@ export function derive<V, V2>(
   }
 
   const calcValue = () => {
-    return fn(read(_reactive_))
+    if (!source) {
+      throw new Error("reroi: cannot calculate a destroyed derivation")
+    }
+    return fn(read(source))
   }
 
-  const pool = (_reactive_ as _Reactive).dependencies.getOrMake(derived.priority)
-  pool.add(derived)
+  source.dependencies.subscribe(derived.priority, derived)
 
   return derived as ReactiveDerivation<V2, [V]>
 }
@@ -204,13 +243,12 @@ export function deriveAll<Vs extends Array<any>, V2>(
   props?: DeriveProps,
 ): ReactiveDerivation<V2, Vs> {
   validateSources(_sources_ as Reactive[])
-  const priority = props?.priority ?? priorities.base
+  const priority = getPriority(props)
   const sources = [..._sources_] as { [K in keyof Vs]: _Reactive<Vs[K]> | null }
 
   const count = sources.length
-  const uniqCount = new Set(sources).size
-  let destroyedCount = 0
-  const values = Array(count)
+  const liveSources = new Set<_Reactive>(sources as Array<_Reactive>)
+  let values = Array(count)
   const calcValue = () => {
     for (let i = 0; i < count; i++) {
       const source = sources[i]
@@ -222,32 +260,43 @@ export function deriveAll<Vs extends Array<any>, V2>(
   }
 
   function sourceDestroyed(source: _Reactive) {
-    let i = 0
-    while (_sources_[i] !== source) { i++ }
+    if (!isDerive(source) || source._cache === nullCache) {
+      derived._destroy()
+      return
+    }
 
-    values[i] = read(source)
-    sources[i] = null
-    destroyedCount++
-    if (destroyedCount === uniqCount) {
-      derived._destroy() // every dependency was destroyed
+    for (let i = 0; i < count; i++) {
+      if (sources[i] === source) {
+        values[i] = source._cache
+        sources[i] = null
+      }
+    }
+
+    liveSources.delete(source)
+    if (liveSources.size === 0) {
+      derived._destroy()
     }
   }
 
   const derived: _ReactiveDerivation<V2> = {
     __tag: _rder,
     _destroy() {
+      if (this._destroyed) return
+
       sources.forEach(source => {
-        const pool = source?.dependencies.get(priority)
-        if (pool) {
-          pool.delete(this)
-        }
+        source?.dependencies.unsubscribe(priority, this)
       })
+      sources.fill(null)
+      liveSources.clear()
+      values = []
+      this._destroyed = true
       notifyDeps(this, NotificationType.SOURCE_DESTROYED)
       this.dependencies.clear()
-      this._destroyed = true
     },
     _cache: nullCache,
     _onMessage(source: _Reactive, type: NotificationType) {
+      if (this._destroyed) return
+
       switch (type) {
       case NotificationType.UPDATE:
         derived._cache = nullCache
@@ -259,6 +308,9 @@ export function deriveAll<Vs extends Array<any>, V2>(
     },
     // @ts-expect-error TODO: fix encapsulation
     fn,
+    _peek(values) {
+      return fn(values as unknown as Vs)
+    },
     priority,
     dependencies: new PriorityPool(),
     value() {
@@ -272,8 +324,7 @@ export function deriveAll<Vs extends Array<any>, V2>(
 
   // Push ourself into sources dependencies
   sources.forEach(source => {
-    const pool = source!.dependencies.getOrMake(props?.priority ?? priorities.base)
-    pool.add(derived)
+    source!.dependencies.subscribe(priority, derived)
   })
 
   return derived as ReactiveDerivation<V2, Vs>
@@ -284,7 +335,7 @@ export function deriveAll<Vs extends Array<any>, V2>(
 type Unsub = () => void;
 
 interface ListenProps extends DeriveProps {
-  immidiate?: boolean;
+  immediate?: boolean;
   once?: boolean;
 }
 
@@ -294,10 +345,15 @@ export function listen<V>(
   props?: ListenProps,
 ): Unsub {
   validateSources([_reactive_])
-  const priority = props?.priority ?? priorities.base
+  const priority = getPriority(props)
+  let source: _Reactive<V> | null = _reactive_ as _Reactive<V>
+  let effect: ((value: V) => void) | null = fn
+  let active = false
 
   const listener: _ReactiveListener = {
     _onMessage(_, type) {
+      if (!active) return
+
       switch (type) {
       case NotificationType.UPDATE:
         react()
@@ -310,28 +366,37 @@ export function listen<V>(
   }
 
   function unsub() {
-    const pool = (_reactive_ as _Reactive).dependencies.get(priority)
-    if (pool) {
-      pool.delete(listener)
-    }
+    if (!source) return
+
+    active = false
+    const currentSource = source
+    source = null
+    currentSource.dependencies.unsubscribe(priority, listener)
+    effect = null
   }
 
-  const effect: typeof fn = props?.once
-    ? (values) => {
-      fn(values)
+  const react = () => {
+    if (!source || !effect) return
+
+    const value = read(source)
+    const currentEffect = effect
+    if (props?.once) {
       unsub()
     }
-    : fn
-  const react = () => {
-    return effect(read(_reactive_))
+    return currentEffect(value)
   }
 
-  const pool = (_reactive_ as _Reactive).dependencies.getOrMake(props?.priority ?? priorities.base)
-  pool.add(listener)
-
-  if (props?.immidiate) {
+  if (props?.immediate) {
     react()
   }
+
+  if (!source || (props?.immediate && props.once) || (isDerive(source) && source._destroyed)) {
+    unsub()
+    return unsub
+  }
+
+  active = true
+  source.dependencies.subscribe(priority, listener)
 
   return unsub
 }
@@ -343,10 +408,15 @@ export function listenAll<Vs extends Array<any>>(
 ): Unsub {
   validateSources(_sources_ as Reactive[])
   const sources = [..._sources_] as { [K in keyof Vs]: _Reactive<Vs[K]> | null }
-  const priority = props?.priority ?? priorities.base
+  const priority = getPriority(props)
+  const liveSources = new Set<_Reactive>(sources as Array<_Reactive>)
+  let effect: ((values: Vs) => void) | null = fn
+  let active = false
 
   const listener: _ReactiveListener = {
     _onMessage(source, type) {
+      if (!active) return
+
       switch (type) {
       case NotificationType.UPDATE:
         react()
@@ -359,55 +429,69 @@ export function listenAll<Vs extends Array<any>>(
   }
 
   function unsub() {
+    if (!effect && liveSources.size === 0) return
+
+    active = false
     sources.forEach(source => {
-      const pool = source?.dependencies.get(priority)
-      if (pool) {
-        pool.delete(listener)
-      }
+      source?.dependencies.unsubscribe(priority, listener)
     })
+    sources.fill(null)
+    liveSources.clear()
+    effect = null
+    values = []
   }
 
-  const effect: typeof fn = props?.once
-    ? (values) => {
-      fn(values)
-      unsub()
-    }
-    : fn
   const count = _sources_.length
-  const uniqCount = new Set(_sources_).size
-  let destroyedCount = 0
-  const values = Array(count)
+  let values = Array(count)
   const react = () => {
+    if (!effect) return
+
     for (let i = 0; i < count; i++) {
       const source = sources[i]
       if (source) {
         values[i] = read(source)
       }
     }
-    return effect(values as unknown as Vs)
+    const currentEffect = effect
+    const currentValues = values as unknown as Vs
+    if (props?.once) {
+      unsub()
+    }
+    return currentEffect(currentValues)
   }
 
   function sourceDestroyed(source: _Reactive) {
-    let i = 0
-    while (_sources_[i] !== source) { i++ }
+    if (!isDerive(source) || source._cache === nullCache) {
+      unsub()
+      return
+    }
 
-    values[i] = read(source)
-    sources[i] = null
-    destroyedCount++
-    if (destroyedCount === uniqCount) {
-      unsub() // every dependency was destroyed
+    for (let i = 0; i < count; i++) {
+      if (sources[i] === source) {
+        values[i] = source._cache
+        sources[i] = null
+      }
+    }
+
+    liveSources.delete(source)
+    if (liveSources.size === 0) {
+      unsub()
     }
   }
 
-  sources.forEach(source => {
-    const pool = source!.dependencies.getOrMake(props?.priority ?? priorities.base)
-    pool.add(listener)
-  })
-
-  if (props?.immidiate) {
+  if (props?.immediate) {
     react()
   }
 
+  if (!effect || (props?.immediate && props.once) || sources.some(source => isDerive(source) && source._destroyed)) {
+    unsub()
+    return unsub
+  }
+
+  active = true
+  sources.forEach(source => {
+    source!.dependencies.subscribe(priority, listener)
+  })
+
   return unsub
 }
-

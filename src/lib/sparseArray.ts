@@ -67,17 +67,25 @@ export class SparseArray<V> {
       if (node.next) {
         node.next.previous = node.previous
       } else {
-        this.head = node
+        this.head = node.previous
       }
       this.nodeMap.delete(index)
+      node.previous = undefined
+      node.next = undefined
     }
   }
   get(index: number) {
     return this.nodeMap.get(index)?.value
   }
-  push(value: V, index7?: number): V {
+  push(value: V, indexOverride?: number): V {
+    const index = indexOverride ?? (this.head ? this.head.index + 1 : 0)
+    const existing = this.nodeMap.get(index)
+    if (existing) {
+      existing.value = value
+      return existing.value
+    }
+
     if (this.head === undefined) {
-      const index = index7 ?? 0
       const node = {
         value,
         previous: undefined,
@@ -89,17 +97,8 @@ export class SparseArray<V> {
       return node.value
     }
 
-    const index = index7 ?? (this.head ? this.head.index + 1 : 0)
-
     let pushAfter: Node<V> | undefined = this.head
-    while (pushAfter && pushAfter.index >= index) {
-      if (pushAfter.index === index) {
-        const atPlace = pushAfter
-        pushAfter = atPlace.previous
-        this.delete(atPlace.index)
-        break
-      }
-
+    while (pushAfter && pushAfter.index > index) {
       pushAfter = pushAfter.previous
     }
 
@@ -115,11 +114,13 @@ export class SparseArray<V> {
         node.next = this.tail
       }
       this.tail = node
-    } else if (pushAfter.next === undefined) {
-      this.head = node
     }
     if (node.previous) node.previous.next = node
-    if (node.next) node.next.previous = node
+    if (node.next) {
+      node.next.previous = node
+    } else {
+      this.head = node
+    }
 
 
     this.nodeMap.set(index, node)

@@ -2,9 +2,7 @@
 
 import { _errorTransaction, _successTransaction } from "./symbols"
 import { _Reactive, _ReactiveTransaction, _ReactiveValue, NotificationType, ReactiveTransaction, ReactiveValue, TransactionError, TransactionState, TransactionSuccess } from "./type"
-import { isVal, notifyDeps, read } from "./reroi"
-import { flow, pipe } from "./lib/composition"
-import { PriorityPool } from "./priority"
+import { isVal, notifyAll, notifyDeps, read } from "./reroi"
 
 const success = <R>(value: R): TransactionSuccess<R> => ({
   __tag: _successTransaction,
@@ -15,10 +13,14 @@ const error = <E>(error: E): TransactionError<E> => ({
   error,
 })
 function isSuccess<R, E>(transaction: TransactionState<R, E>): transaction is TransactionSuccess<R> {
-  return transaction.__tag === _successTransaction
+  return typeof transaction === "object"
+    && transaction !== null
+    && transaction.__tag === _successTransaction
 }
 function isError<R, E>(transaction: TransactionState<R, E>): transaction is TransactionError<E> {
-  return transaction.__tag === _errorTransaction
+  return typeof transaction === "object"
+    && transaction !== null
+    && transaction.__tag === _errorTransaction
 }
 
 
@@ -37,52 +39,64 @@ const foldT = <R, E, B>(onError: (e: E) => B, onSuccess: (r: R) => B) => (transa
 
 const runTransaction = <A, E, C>(
   _v_: ReactiveValue<A>,
-  newValue: A | ((aVal: A, context: C) => TransactionState<A, E>), context: C) => {
-  return typeof newValue === "function"
+  newValue: A | ((aVal: A, context: C) => TransactionState<A, E>),
+  context: C,
+  literalFn: boolean,
+) => {
+  const state = !literalFn && typeof newValue === "function"
     ? (newValue as (a: A, context: C) => TransactionState<A, E>)(read(_v_), context)
-    : success(newValue)
+    : success(newValue as A)
+
+  if (!isSuccess(state) && !isError(state)) {
+    throw new Error("reroi.transaction: a transaction callback must return transaction.success or transaction.error")
+  }
+  return state
+}
+
+interface WriteTransactionProps {
+  literalFn?: boolean;
 }
 
 function writeT<R, E, C = {}, ID extends string = string>(
   _value_: ReactiveValue<R>,
   newValue: (aVal: R, context: C) => TransactionState<R, E>,
-  id?: ID
+  id?: ID,
+  props?: WriteTransactionProps,
 ): ReactiveTransaction<R, E, C, ID>;
-function writeT<A, _, C = {}, ID extends string = string>(
+function writeT<A, C = {}, ID extends string = string>(
   _value_: ReactiveValue<A>,
   newValue: A,
-  id?: ID
+  id?: ID,
+  props?: WriteTransactionProps,
 ): ReactiveTransaction<A, never, C, ID>;
 function writeT<A, E, C = {}, ID extends string = string>(
   _value_: ReactiveValue<A>,
   newValue: A | ((aVal: A, context: C) => TransactionState<A, E>),
   id?: ID,
+  props?: WriteTransactionProps,
 ): ReactiveTransaction<A, E, C, ID> {
   if (!isVal(_value_)) {
     throw new Error("reroi: You can write only to ReactiveValue created with val!!!")
   }
   const _v_ = _value_ as _ReactiveValue<A>
+  const makeContext = () => Object.create(null) as C
 
   const tr: _ReactiveTransaction<A, E, C, ID> = {
     run() {
-      return pipe(
-        runTransaction(_v_, newValue, this.context),
-        mapTS(v => {
-          this.write!(v)
-          notifyDeps(_v_, NotificationType.UPDATE)
-          return v
-        }),
-      )
+      const state = runTransaction(_v_, newValue, makeContext(), props?.literalFn ?? false)
+      if (isSuccess(state)) {
+        this.write!(state.value)
+        notifyDeps(_v_, NotificationType.UPDATE)
+      }
+      return state
     },
     silentRun(ctx: C) {
-      this.context = ctx
-      return runTransaction(_v_, newValue, this.context)
+      return runTransaction(_v_, newValue, ctx, props?.literalFn ?? false)
     },
     write(value: A) {
       _v_.value = value
     },
-    context: {} as C,
-    dependencies: _v_.dependencies,
+    targets: new Set([_v_ as _ReactiveValue<unknown>]),
     id,
   }
 
@@ -203,39 +217,38 @@ function composeT<
 >(...transactions: TRs): ReactiveTransaction {
   const _transactions = transactions as unknown as Array<_ReactiveTransaction<unknown, unknown, any, string>>
 
-  let dependencies: PriorityPool | null = null
-  for (const tr of _transactions) {
-    if (dependencies) {
-      dependencies = PriorityPool.merge(dependencies, tr.dependencies)
-    } else {
-      dependencies = tr.dependencies
-    }
-  }
-  if (!dependencies) {
+  if (_transactions.length === 0) {
     throw new Error("reroi.transaction: empty transaction list!")
   }
 
-  const silentRun = <C extends Record<string, unknown>>(ctx: C = {} as C) => {
+  const targets = new Set<_ReactiveValue<unknown>>()
+  for (const tr of _transactions) {
+    for (const target of tr.targets) {
+      targets.add(target)
+    }
+  }
+
+  const silentRun = <C extends Record<string, unknown>>(ctx = Object.create(null) as C) => {
     let resT: TransactionState<Array<[_ReactiveTransaction<unknown, unknown, {}, string>, unknown]>, unknown> = success([])
     const context: Record<string, unknown> = ctx
 
     for (const tr of _transactions) {
-      resT = pipe(
-        tr.silentRun(context),
-        mapTS(res => {
-          if (isSuccess(resT)) {
-            if (tr.id) {
-              context[tr.id] = res
-            }
-            return resT.value.concat([[tr, res]])
-          }
-          throw new Error("reroi: inconsistent state of transaction")
-        }),
-      )
-
-      if (isError(resT)) {
-        return resT
+      const state = tr.silentRun(context)
+      if (isError(state)) {
+        return state
       }
+
+      if (!isSuccess(resT)) {
+        throw new Error("reroi: inconsistent state of transaction")
+      }
+      if (tr.id !== undefined) {
+        if (Object.prototype.hasOwnProperty.call(context, tr.id)) {
+          throw new Error(`reroi.transaction: duplicate transaction id '${tr.id}'`)
+        }
+        context[tr.id] = state.value
+      }
+      resT = success(resT.value.concat([[tr, state.value]]))
+
     }
 
     return resT
@@ -252,20 +265,19 @@ function composeT<
     })
   }
 
-  const run = flow(
-    silentRun,
-    mapTS(r => {
-      write(r)
-      notifyDeps({ dependencies } as unknown as _Reactive, NotificationType.UPDATE)
-      return r.at(-1)![1]
-    }),
-  )
+  const run = () => {
+    const state = silentRun()
+    if (isError(state)) return state
+
+    write(state.value)
+    notifyAll([...targets] as Array<_Reactive>, NotificationType.UPDATE)
+    return success(state.value[state.value.length - 1]![1])
+  }
 
   const tr: _ReactiveTransaction<unknown, unknown> = {
     run,
     silentRun,
-    dependencies,
-    context: {},
+    targets,
   }
 
   return tr

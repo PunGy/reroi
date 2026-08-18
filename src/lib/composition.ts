@@ -67,7 +67,7 @@ export function flow(...fns: Array<AnyFunction>) {
 
 
 /**
- * Left-to-right function composition with immidiate application
+ * Left-to-right function composition with immediate application
  */
 export function pipe<A>(a: A): A;
 export function pipe<A, B>(a: A, ab: (a: A) => B): B;

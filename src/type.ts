@@ -26,21 +26,21 @@ export interface Priorities {
 
 
 export interface ReactiveValue<V> {
-  __tag: typeof _rval,
+  readonly __tag: typeof _rval,
   /** @deprecated Exists only for types */
-  __value: V;
-  __readable: typeof _readable;
-  __writable: typeof _writable;
+  readonly __value: V;
+  readonly __readable: typeof _readable;
+  readonly __writable: typeof _writable;
 }
 
 export interface ReactiveDerivation<V, D extends ReadonlyArray<unknown> = ReadonlyArray<unknown>> {
-  __tag: typeof _rder,
+  readonly __tag: typeof _rder,
   /** @deprecated Not a real property, exists only for types */
-  __value: V;
+  readonly __value: V;
   /** @deprecated Not a real property, exists only for types */
-  __readable: typeof _readable;
+  readonly __readable: typeof _readable;
   /** @deprecated Not a real property, exists only for types */
-  __meta_dependencies?: D,
+  readonly __meta_dependencies?: D,
 }
 
 export type Reactive<V = unknown> = ReactiveValue<V> | ReactiveDerivation<V>
@@ -54,11 +54,11 @@ export interface _ReactiveValue<V> extends ReactiveValue<V>, Dependable {
 export interface _ReactiveDerivation<V = unknown, D extends Array<unknown> = Array<unknown>> extends ReactiveDerivation<V, D>, Dependable {
   _destroy(): void;
   _cache: (typeof nullCache) | V;
-  _invalidate(): void;
   _onMessage(source: _Reactive, type: NotificationType): void;
   _destroyed: boolean;
   priority: Priority;
   value(): V;
+  _peek(values: D): V;
   fn: (values: D | D[0]) => V,
 }
 
@@ -90,12 +90,14 @@ export interface ReactiveTransaction<
 > {
   run(): TransactionState<R, E>;
   id?: ID,
-  context: C,
+  /** @deprecated Not a real property, exists only for context inference. */
+  readonly __context?: C,
 }
 
-export interface _ReactiveTransaction<R, E, C = {}, ID extends string = string> extends ReactiveTransaction<R, E, C, ID>, Dependable {
+export interface _ReactiveTransaction<R, E, C = {}, ID extends string = string> extends ReactiveTransaction<R, E, C, ID> {
   // Run, but does not notifies dependencies, nor writing a value
   silentRun(ctx: C): TransactionState<R, E>;
   // write a value, if no writer - it is a composable transaction
   write?(value: R): void;
+  targets: Set<_ReactiveValue<unknown>>;
 }

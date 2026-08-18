@@ -29,7 +29,3 @@ import { Reactive } from 'reroi'
 function useReactive<T>(_reactive_: Reactive<T>): T;
 ```
 
-## Minor
-
-- Add `literateFn` to `transaction.write`.
-

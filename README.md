@@ -248,14 +248,14 @@ read(_compound_) // E: 10.00000
 function write<A>(
     _value_: ReactiveValue<A>,
     newValue: A | ((value: A) => A),
-    props?: { literateFn?: boolean },
+    props?: { literalFn?: boolean },
 ): ReactiveValue<A>;
 ```
 
 - ***value***: Reactive value to write to.
 - **newValue**: Value producer or a plain value.
 - **props**:
-  - **literateFn**: Treat a function passed as `newValue` as a value, not as
+  - **literalFn**: Treat a function passed as `newValue` as a value, not as
     a value producer.
 
 ```typescript
@@ -272,7 +272,7 @@ expect(read(_x_)).toBe(40)
 // LiterateFn
 const _lazyX_ = val(() => 10)
 const x20 = () => 20
-write(_lazyX_, x20, { literateFn: true })
+write(_lazyX_, x20, { literalFn: true })
 
 expect(read(_lazyX_)).toBe(x20)
 ```
@@ -312,7 +312,7 @@ type Unsub = () => void;
 function listen<V>(
     _source_: Reactive<V>,
     sideEffect: (value: V) => void,
-    props?: { priority?: Priority, immediate?: boolean },
+    props?: { priority?: Priority, immediate?: boolean, once?: boolean },
 ): Unsub;
 ```
 
@@ -324,6 +324,7 @@ is called on **every** dependency update.
     `priorities.base`.
   - **immediate**: Call the listen effect upon declaration. Default is
     `false`.
+  - **once**: Unsubscribe before the first effect call. Default is `false`.
 
 #### listenAll
 
@@ -335,7 +336,7 @@ type Unsub = () => void;
 function listenAll<Vs extends Array<unknown>, V2>(
     _sources_: { [K in keyof Vs]: Reactive<Vs[K]> },
     sideEffect: (values: Vs) => void,
-    props?: { priority?: Priority, immediate?: boolean },
+    props?: { priority?: Priority, immediate?: boolean, once?: boolean },
 ): Unsub;
 ```
 
@@ -346,6 +347,11 @@ function listenAll<Vs extends Array<unknown>, V2>(
     `priorities.base`.
   - **immediate**: Call the listen effect upon declaration. Default is
     `false`.
+  - **once**: Unsubscribe before the first effect call. Default is `false`.
+
+> Computations and listener effects are user code. `reroi` does not catch their
+> exceptions. Throwing from them aborts the current synchronous propagation and
+> is considered a violation of the callback contract.
 
 ### Priorities
 
@@ -512,7 +518,8 @@ type TransactionFN = <R, E, C>(aVal: R, context: C) => TransactionState<R, E>
 function writeT<R, E, C = {}, ID extends string = string>(
   _value_: ReactiveValue<R>,
   newValue: TransactionFN<R, E, C> | R,
-  id?: ID
+  id?: ID,
+  props?: { literalFn?: boolean },
 ): ReactiveTransaction<R, E, C, ID>;
 ```
 
@@ -529,6 +536,8 @@ Parameters:
 - **newValue**: Either a function that accepts the current value and
 transaction context, or a plain value to resolve the transaction with.
 - **id**: Optional ID of the transaction.
+- **literalFn**: Treat a function passed as `newValue` as a value rather than a
+transaction callback.
 
 ```typescript
 import { val, transaction, read } from 'reroi'
@@ -851,7 +860,10 @@ Reads a derive with dependencies provided as a list in the second parameter.
 Completely pure and does not affect the `derivation` in any way.
 
 ```typescript
-function peek<R extends ReactiveDerivation>(_derive_: R, dependencies: R['dependencies']): R['value'];
+function peek<R extends ReactiveDerivation>(
+    _derive_: R,
+    dependencies: NonNullable<R['__meta_dependencies']>,
+): R['__value'];
 ```
 
 ### destroy
@@ -868,8 +880,15 @@ function destroy(
 ): void;
 ```
 
-Once destroyed, it notifies all listeners, which stop listening. If it was the
-last dependency, dependents are cascadedly destroyed.
+Destruction is idempotent and never evaluates user computations. The derivation
+is detached from its sources and subscribers. If it has already been evaluated,
+its last cached value remains readable. A destroyed lazy derivation that has
+never produced a value cannot be read.
+
+Multi-source dependents preserve the last cached value of a destroyed source and
+can continue reacting to their remaining sources. If no cached source value is
+available, or the destroyed source was their last dependency, destruction
+cascades to them instead.
 
 ## Examples
 

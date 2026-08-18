@@ -177,6 +177,27 @@ describe("reroi", () => {
 
       expect(fn).toHaveBeenCalledOnce()
     })
+
+    it("runs immediately with the correctly-spelled option", () => {
+      const _x_ = R.val(10)
+      const fn = vi.fn()
+
+      const stop = R.listen(_x_, fn, { immediate: true })
+
+      expect(fn).toHaveBeenCalledOnce()
+      expect(fn).toHaveBeenCalledWith(10)
+      stop()
+    })
+
+    it("makes unsubscribe idempotent and removes its priority bucket", () => {
+      const _x_ = R.val(10)
+      const stop = R.listen(_x_, () => undefined, { priority: 42 })
+
+      stop()
+      stop()
+
+      expect(((_x_ as unknown as { dependencies: { get(priority: number): unknown } }).dependencies).get(42)).toBeUndefined()
+    })
   })
 
   describe("destroy", () => {
@@ -241,8 +262,8 @@ describe("reroi", () => {
 
       R.destroy(_x2_)
 
-      expect(() => R.read(_x2_)).toThrowError("R: cannot read destroyed derivation!")
-      expect(() => R.read(_xl_)).toThrowError("R: cannot read destroyed derivation!")
+      expect(() => R.read(_x2_)).toThrowError("reroi: cannot read a destroyed derivation that has no cached value")
+      expect(() => R.read(_xl_)).toThrowError("reroi: cannot read a destroyed derivation that has no cached value")
     })
 
     it("prevents subscribe to destroyed", () => {
@@ -253,16 +274,91 @@ describe("reroi", () => {
 
       expect(() => {
         R.derive(_x2_, x => x)
-      }).toThrowError("R: cannot subscribe to destroyed source!")
+      }).toThrowError("reroi: cannot subscribe to destroyed source!")
       expect(() => {
         R.deriveAll([_x_, _x2_], x => x)
-      }).toThrowError("R: cannot subscribe to destroyed source!")
+      }).toThrowError("reroi: cannot subscribe to destroyed source!")
       expect(() => {
         R.listen(_x2_, x => x)
-      }).toThrowError("R: cannot subscribe to destroyed source!")
+      }).toThrowError("reroi: cannot subscribe to destroyed source!")
       expect(() => {
         R.listenAll([_x_, _x2_], x => x)
-      }).toThrowError("R: cannot subscribe to destroyed source!")
+      }).toThrowError("reroi: cannot subscribe to destroyed source!")
+    })
+
+    it("preserves the last cached value without running user code", () => {
+      const _x_ = R.val(2)
+      const calculation = vi.fn((x: number) => x * 2)
+      const _x2_ = R.derive(_x_, calculation)
+
+      expect(R.read(_x2_)).toBe(4)
+      R.destroy(_x2_)
+      R.destroy(_x2_)
+      R.write(_x_, 3)
+
+      expect(R.read(_x2_)).toBe(4)
+      expect(calculation).toHaveBeenCalledOnce()
+    })
+
+    it("does not evaluate a lazy derivation while destroying it", () => {
+      const _x_ = R.val(2)
+      const calculation = vi.fn((x: number) => x * 2)
+      const _x2_ = R.derive(_x_, calculation)
+
+      expect(() => R.destroy(_x2_)).not.toThrow()
+
+      expect(calculation).not.toHaveBeenCalled()
+      expect(() => R.read(_x2_)).toThrowError("reroi: cannot read a destroyed derivation that has no cached value")
+    })
+
+    it("freezes every duplicated occurrence of a partially destroyed source", () => {
+      const _a_ = R.val(1)
+      const _aDerived_ = R.derive(_a_, a => a)
+      const _b_ = R.val(10)
+      const _sum_ = R.deriveAll([_aDerived_, _aDerived_, _b_], sumList)
+
+      expect(R.read(_sum_)).toBe(12)
+      R.destroy(_aDerived_)
+      R.write(_b_, 20)
+
+      expect(R.isDestroyed(_sum_)).toBe(false)
+      expect(R.read(_sum_)).toBe(22)
+    })
+
+    it("does not retain or inspect the caller's mutable source array", () => {
+      const _a_ = R.val(1)
+      const _aDerived_ = R.derive(_a_, a => a)
+      const _b_ = R.val(2)
+      const sources = [_aDerived_, _b_]
+      const _sum_ = R.deriveAll(sources, sumList)
+
+      expect(R.read(_sum_)).toBe(3)
+      sources[0] = _b_
+      R.destroy(_aDerived_)
+      R.write(_b_, 3)
+
+      expect(R.read(_sum_)).toBe(4)
+    })
+
+    it("cascades without evaluating uncached derivations", () => {
+      const _x_ = R.val(1)
+      const first = vi.fn((x: number) => x + 1)
+      const second = vi.fn((x: number) => x + 1)
+      const _first_ = R.derive(_x_, first)
+      const _second_ = R.derive(_first_, second)
+
+      R.destroy(_first_)
+
+      expect(R.isDestroyed(_first_)).toBe(true)
+      expect(R.isDestroyed(_second_)).toBe(true)
+      expect(first).not.toHaveBeenCalled()
+      expect(second).not.toHaveBeenCalled()
+    })
+
+    it("throws immediately when destroy is used with a non-derivation", () => {
+      const _x_ = R.val(1)
+
+      expect(() => R.destroy(_x_ as never)).toThrowError("reroi: destroy expects a ReactiveDerivation")
     })
   })
 
@@ -276,7 +372,7 @@ describe("reroi", () => {
     it("does not treat a function as a new value creator if literalFn passed", () => {
       const _lazyX_ = R.val(() => 10)
       const x20 = () => 20
-      R.write(_lazyX_, x20, { literateFn: true })
+      R.write(_lazyX_, x20, { literalFn: true })
 
       expect(R.read(_lazyX_)).toBe(x20)
     })
@@ -317,6 +413,26 @@ describe("reroi", () => {
         expect(fn).not.toHaveBeenCalled()
         expect(R.read(_x_)).toBe(10)
         expect(R.transaction.isError(res) && res.error === 0).toBeTruthy()
+      })
+
+      it("writes a function value when literalFn is enabled", () => {
+        const original = () => 1
+        const replacement = () => 2
+        const _fn_ = R.val<() => number>(original)
+        const tr = R.transaction.write(_fn_, replacement, undefined, { literalFn: true })
+
+        const state = tr.run()
+
+        expect(R.transaction.isSuccess(state)).toBe(true)
+        expect(R.read(_fn_)).toBe(replacement)
+      })
+
+      it("rejects malformed callback results as direct misuse", () => {
+        const _x_ = R.val(1)
+        const tr = R.transaction.write(_x_, (() => 2) as never)
+
+        expect(() => tr.run()).toThrowError("reroi.transaction: a transaction callback must return transaction.success or transaction.error")
+        expect(R.read(_x_)).toBe(1)
       })
     })
 
@@ -504,6 +620,94 @@ describe("reroi", () => {
         expect(R.read(_a_)).toBe("a")
         expect(R.transaction.isError(res)).toBeTruthy()
       })
+
+      it("notifies every target in a three-value transaction", () => {
+        const _a_ = R.val("a")
+        const _b_ = R.val("b")
+        const _c_ = R.val("c")
+        const calls: Array<string> = []
+        R.listen(_a_, () => calls.push("a"))
+        R.listen(_b_, () => calls.push("b"))
+        R.listen(_c_, () => calls.push("c"))
+
+        R.transaction.compose(
+          R.transaction.write(_a_, "A"),
+          R.transaction.write(_b_, "B"),
+          R.transaction.write(_c_, "C"),
+        ).run()
+
+        expect(calls).toEqual(["a", "b", "c"])
+      })
+
+      it("observes subscriptions added after composition", () => {
+        const _a_ = R.val(1)
+        const _b_ = R.val(2)
+        const tr = R.transaction.compose(
+          R.transaction.write(_a_, 10),
+          R.transaction.write(_b_, 20),
+        )
+        const _sum_ = R.deriveAll([_a_, _b_], sumList)
+        const fn = vi.fn()
+        expect(R.read(_sum_)).toBe(3)
+        R.listen(_sum_, fn)
+
+        tr.run()
+
+        expect(R.read(_sum_)).toBe(30)
+        expect(fn).toHaveBeenCalledOnce()
+        expect(fn).toHaveBeenCalledWith(30)
+      })
+
+      it("does not retain listeners removed after composition", () => {
+        const _a_ = R.val(1)
+        const _b_ = R.val(2)
+        const fn = vi.fn()
+        const stop = R.listenAll([_a_, _b_], fn)
+        const tr = R.transaction.compose(
+          R.transaction.write(_a_, 10),
+          R.transaction.write(_b_, 20),
+        )
+
+        stop()
+        tr.run()
+
+        expect(fn).not.toHaveBeenCalled()
+      })
+
+      it("uses a fresh context when a leaf transaction runs later", () => {
+        const _a_ = R.val("a")
+        const _b_ = R.val("b")
+        const second = R.transaction.write(
+          _b_,
+          (_, context: { first: string | undefined }) => R.transaction.success(context.first ?? "missing"),
+        )
+        const composed = R.transaction.compose(
+          R.transaction.write(_a_, "from composition", "first"),
+          second,
+        )
+
+        composed.run()
+        expect(R.read(_b_)).toBe("from composition")
+
+        second.run()
+        expect(R.read(_b_)).toBe("missing")
+      })
+
+      it("stores __proto__ as an ordinary context id", () => {
+        type ProtoContext = { __proto__: { marker: string } }
+        const _a_ = R.val({ marker: "safe" })
+        const _b_ = R.val(false)
+        const tr = R.transaction.compose(
+          R.transaction.write(_a_, { marker: "stored" }, "__proto__"),
+          R.transaction.write(_b_, (_, context: ProtoContext) => {
+            return R.transaction.success(Object.prototype.hasOwnProperty.call(context, "__proto__"))
+          }),
+        )
+
+        tr.run()
+
+        expect(R.read(_b_)).toBe(true)
+      })
     })
   })
 
@@ -523,6 +727,14 @@ describe("reroi", () => {
       ).run()
 
       expect(R.read(_b_)).toBe("AAB")
+    })
+
+    it("passes a scalar to a single-source derivation", () => {
+      const _name_ = R.val("alice")
+      const _upper_ = R.derive(_name_, name => name.toUpperCase())
+
+      expect(R.peek(_upper_, ["bob"])).toBe("BOB")
+      expect(R.read(_upper_)).toBe("ALICE")
     })
 
   })
@@ -582,7 +794,7 @@ describe("reroi", () => {
         // Hapens second
       }, { priority: R.priorities.after(_b_Priority) })
 
-      R.listen(_c_, fn, { immidiate: true })
+      R.listen(_c_, fn, { immediate: true })
 
       R.listen(_a_, a => {
         R.write(_b_, b => a + b)
@@ -663,8 +875,15 @@ describe("reroi", () => {
     })
 
     it("prevents from setting priority higher than highest and lower than lowest", () => {
-      expect(() => R.priorities.before(R.priorities.highest)).toThrowError("R: Cannot use 'before' with priority bigger then the highest!")
-      expect(() => R.priorities.after(R.priorities.lowest)).toThrowError("R: Cannot use 'after' with priority lower then the lowest!")
+      expect(() => R.priorities.before(R.priorities.highest)).toThrowError("reroi: Cannot use 'before' with priority bigger then the highest!")
+      expect(() => R.priorities.after(R.priorities.lowest)).toThrowError("reroi: Cannot use 'after' with priority lower then the lowest!")
+    })
+
+    it("rejects invalid priorities at subscription boundaries", () => {
+      const _x_ = R.val(1)
+
+      expect(() => R.derive(_x_, x => x, { priority: Number.NaN })).toThrowError("reroi: priority must be a finite number")
+      expect(() => R.listen(_x_, () => undefined, { priority: 1001 })).toThrowError("reroi: priority must be between -1000 and 1000")
     })
   })
 
@@ -682,7 +901,7 @@ describe("reroi", () => {
     R.listen(
       R.deriveAll([_a_, _b_], sources => sources),
       ([a, b]) => answer = a + ", " + b,
-      { immidiate: true },
+      { immediate: true },
     )
 
     expect(answer).toBe("a(xy), b(xy)")
@@ -793,7 +1012,7 @@ describe("reroi", () => {
         _listener()
         _listener = R.listen(growingSon, listener)
       }
-    }, { immidiate: true })
+    }, { immediate: true })
 
     R.write(mother, "do homework")
     expect(echo).toHaveBeenCalledWith("mommy: do homework, daddy: d")
@@ -807,4 +1026,3 @@ describe("reroi", () => {
     expect(echo).toHaveBeenCalledWith("go to university")
   })
 })
-
