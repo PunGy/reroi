@@ -1,7 +1,7 @@
 {
   "name": "reroi",
   "private": false,
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "Library for creating reactive systems with maximum control.",
   "license": "MIT",
   "author": "Maxim Iakovlev <max.yakovlev555@gmail.com>",
@@ -40,21 +40,27 @@
     "test": "vitest",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage",
+    "bench": "vitest bench --run",
+    "bench:quick": "REROI_BENCH_TIME=100 REROI_BENCH_WARMUP=25 vitest bench --run",
+    "bench:save": "vitest bench --run --outputJson benchmarks/results/baseline.json",
+    "bench:compare": "vitest bench --run --compare benchmarks/results/baseline.json",
     "prepack": "pnpm run build",
     "publish:alpha": "npm publish --tag=alpha",
     "publish:latest": "npm publish --tag=latest"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@preact/signals-core": "1.14.4",
     "@types/node": "^24.13.3",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "4.1.10",
     "dts-bundle-generator": "^9.5.1",
     "eslint": "^9.39.5",
     "globals": "^17.11.0",
     "rimraf": "^6.1.3",
+    "solid-js": "1.9.14",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.67.0",
     "vite": "^8.2.1",
-    "vitest": "^4.1.10"
+    "vitest": "4.1.10"
   }
 }

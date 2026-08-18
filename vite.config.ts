@@ -36,5 +36,8 @@ export default defineConfig({
   },
   test: {
     watch: false,
+    benchmark: {
+      include: ["benchmarks/**/*.bench.ts"],
+    },
   },
 })
