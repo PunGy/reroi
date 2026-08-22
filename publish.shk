@@ -1,0 +1,34 @@
+let perform fn [list-of-actions] list.iterate shell! list-of-actions
+let ask-proceed fn [] '(
+  let continue? $ shell.ask "Is everything okay and we can continue [y/n]? "
+  if (= (string.lower continue?) :n) process.abort
+)
+
+[ "pnpm run type:check"
+  "pnpm run lint"
+  "pnpm test --run"
+  "pnpm run build"
+  "git status --short"
+  "npm pack --dry-run --ignore-scripts" ] $> perform
+
+ask-proceed
+
+[ "npm config get registry"
+  "npm whoami --registry=https://registry.npmjs.org/"
+  "npm view reroi version dist-tags versions --json" ] $> perform
+
+ask-proceed
+
+
+shell! "npm stage publish --tag latest"
+
+let stage-id $ shell.ask "Enter stage id: "
+
+[ "npm stage view {stage-id}"
+  "npm stage download {stage-id}" ] $> perform
+
+print "Verify downloaded stage"
+
+ask-proceed
+
+shell! "npm stage approve {stage-id}"
