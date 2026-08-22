@@ -19,11 +19,29 @@ export function isDerive<V>(_value_: Reactive<V> | any): _value_ is _ReactiveDer
 }
 
 const notifyPool = (dependencies: PriorityPool, source: _Reactive, type: NotificationType) => {
+  if (dependencies.isEmpty) return
+
   const stack: Array<_ReactiveListener> = []
 
   function fill(dependencies: PriorityPool) {
-    dependencies.forEach(r => {
-      stack.push(...[...r].reverse())
+    dependencies.forEach(pool => {
+      const start = stack.length
+      for (const reactive of pool) {
+        stack.push(reactive)
+      }
+
+      // The stack is LIFO, so reverse only the newly appended segment. This
+      // preserves Set insertion order without allocating an array per bucket
+      // or spreading a large fan-out into a function call.
+      let left = start
+      let right = stack.length - 1
+      while (left < right) {
+        const first = stack[left]!
+        stack[left] = stack[right]!
+        stack[right] = first
+        left++
+        right--
+      }
     })
   }
   fill(dependencies)
@@ -41,15 +59,16 @@ export const notifyDeps = (_r_: _Reactive, type: NotificationType) => {
   notifyPool(_r_.dependencies, _r_, type)
 }
 
-export const notifyAll = (_reactives_: ReadonlyArray<_Reactive>, type: NotificationType) => {
-  if (_reactives_.length === 0) return
-
-  let dependencies = new PriorityPool()
+export const notifyAll = (_reactives_: Iterable<_Reactive>, type: NotificationType) => {
+  let source: _Reactive | undefined
+  const pools: Array<PriorityPool> = []
   for (const _reactive_ of _reactives_) {
-    dependencies = PriorityPool.merge(dependencies, _reactive_.dependencies)
+    source ??= _reactive_
+    pools.push(_reactive_.dependencies)
   }
+  if (!source) return
 
-  notifyPool(dependencies, _reactives_[0]!, type)
+  notifyPool(PriorityPool.mergeAll(pools), source, type)
 }
 
 // Utilities // Operations
@@ -60,6 +79,20 @@ export const notifyAll = (_reactives_: ReadonlyArray<_Reactive>, type: Notificat
  * If it's a ReactiveValue - just returns associated value
  * If it's a ReactiveDerivation - computes the value, if it wasn't cached
  */
+const readReactive = <V>(_reactive_: _Reactive<V>): V => {
+  if (_reactive_.__tag === _rval) {
+    return _reactive_.value
+  }
+
+  if (_reactive_._cache !== nullCache) {
+    return _reactive_._cache
+  }
+  if (_reactive_._destroyed) {
+    throw new Error("reroi: cannot read a destroyed derivation that has no cached value")
+  }
+  return _reactive_.value()
+}
+
 export const read = <V>(_reactive_: Reactive<V>): V => {
   if (isVal(_reactive_)) {
     return _reactive_.value
@@ -86,10 +119,11 @@ export const peek = <R extends ReactiveDerivation<unknown>>(_derive_: R, depende
 }
 
 export const mutateReactiveVal = <A>(_value_: ReactiveValue<A>, newValue: A | ((v: A) => A), props?: { literalFn?: boolean }) => {
-  (_value_ as _ReactiveValue<A>).value = props?.literalFn
+  const value = _value_ as _ReactiveValue<A>
+  value.value = props?.literalFn
     ? newValue as A
     : typeof newValue === "function"
-      ? (newValue as (a: A) => A)(read(_value_))
+      ? (newValue as (a: A) => A)(value.value)
       : newValue
 }
 
@@ -229,7 +263,7 @@ export function derive<V, V2>(
     if (!source) {
       throw new Error("reroi: cannot calculate a destroyed derivation")
     }
-    return fn(read(source))
+    return fn(readReactive(source))
   }
 
   source.dependencies.subscribe(derived.priority, derived)
@@ -253,7 +287,7 @@ export function deriveAll<Vs extends Array<any>, V2>(
     for (let i = 0; i < count; i++) {
       const source = sources[i]
       if (source) {
-        values[i] = read(source)
+        values[i] = readReactive(source)
       }
     }
     return fn(values as unknown as Vs)
@@ -378,7 +412,7 @@ export function listen<V>(
   const react = () => {
     if (!source || !effect) return
 
-    const value = read(source)
+    const value = readReactive(source)
     const currentEffect = effect
     if (props?.once) {
       unsub()
@@ -449,7 +483,7 @@ export function listenAll<Vs extends Array<any>>(
     for (let i = 0; i < count; i++) {
       const source = sources[i]
       if (source) {
-        values[i] = read(source)
+        values[i] = readReactive(source)
       }
     }
     const currentEffect = effect

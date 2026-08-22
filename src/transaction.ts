@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-empty-object-type */
 
 import { _errorTransaction, _successTransaction } from "./symbols"
-import { _Reactive, _ReactiveTransaction, _ReactiveValue, NotificationType, ReactiveTransaction, ReactiveValue, TransactionError, TransactionState, TransactionSuccess } from "./type"
-import { isVal, notifyAll, notifyDeps, read } from "./reroi"
+import { _ReactiveTransaction, _ReactiveValue, NotificationType, ReactiveTransaction, ReactiveValue, TransactionError, TransactionState, TransactionSuccess } from "./type"
+import { isVal, notifyAll, notifyDeps } from "./reroi"
 
 const success = <R>(value: R): TransactionSuccess<R> => ({
   __tag: _successTransaction,
@@ -38,13 +38,13 @@ const foldT = <R, E, B>(onError: (e: E) => B, onSuccess: (r: R) => B) => (transa
 }
 
 const runTransaction = <A, E, C>(
-  _v_: ReactiveValue<A>,
+  _v_: _ReactiveValue<A>,
   newValue: A | ((aVal: A, context: C) => TransactionState<A, E>),
   context: C,
   literalFn: boolean,
 ) => {
   const state = !literalFn && typeof newValue === "function"
-    ? (newValue as (a: A, context: C) => TransactionState<A, E>)(read(_v_), context)
+    ? (newValue as (a: A, context: C) => TransactionState<A, E>)(_v_.value, context)
     : success(newValue as A)
 
   if (!isSuccess(state) && !isError(state)) {
@@ -229,7 +229,7 @@ function composeT<
   }
 
   const silentRun = <C extends Record<string, unknown>>(ctx = Object.create(null) as C) => {
-    let resT: TransactionState<Array<[_ReactiveTransaction<unknown, unknown, {}, string>, unknown]>, unknown> = success([])
+    const entries: Array<[_ReactiveTransaction<unknown, unknown, {}, string>, unknown]> = []
     const context: Record<string, unknown> = ctx
 
     for (const tr of _transactions) {
@@ -238,31 +238,28 @@ function composeT<
         return state
       }
 
-      if (!isSuccess(resT)) {
-        throw new Error("reroi: inconsistent state of transaction")
-      }
       if (tr.id !== undefined) {
         if (Object.prototype.hasOwnProperty.call(context, tr.id)) {
           throw new Error(`reroi.transaction: duplicate transaction id '${tr.id}'`)
         }
         context[tr.id] = state.value
       }
-      resT = success(resT.value.concat([[tr, state.value]]))
+      entries.push([tr, state.value])
 
     }
 
-    return resT
+    return success(entries)
   }
 
   function write(entries: Array<[_ReactiveTransaction<unknown, unknown>, unknown]>) {
-    entries.forEach(([tr, value]) => {
+    for (const [tr, value] of entries) {
       if (tr.write) {
         tr.write(value)
       } else {
         if (!Array.isArray(value)) throw new Error("Broken transaction composition")
         write(value)
       }
-    })
+    }
   }
 
   const run = () => {
@@ -270,7 +267,7 @@ function composeT<
     if (isError(state)) return state
 
     write(state.value)
-    notifyAll([...targets] as Array<_Reactive>, NotificationType.UPDATE)
+    notifyAll(targets, NotificationType.UPDATE)
     return success(state.value[state.value.length - 1]![1])
   }
 

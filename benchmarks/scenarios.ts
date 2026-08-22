@@ -30,7 +30,7 @@ export interface ReactiveImplementation {
   hotChain(depth: number): BenchmarkScenario;
   fanOut(width: number): BenchmarkScenario;
   fanIn(width: number): BenchmarkScenario;
-  diamond(layers: number): BenchmarkScenario;
+  idiomaticDiamond(layers: number): BenchmarkScenario;
   atomic(width: number): BenchmarkScenario;
   atomicFanOut(width: number): BenchmarkScenario;
   cart(size: number): BenchmarkScenario;
@@ -242,7 +242,7 @@ const reroiImplementation: ReactiveImplementation = {
     }
   },
 
-  diamond(layers) {
+  idiomaticDiamond(layers) {
     const slot = allocateSinkSlot()
     const root = R.val(0)
     const nodes: Array<ReactiveDerivation<number>> = []
@@ -251,9 +251,21 @@ const reroiImplementation: ReactiveImplementation = {
     let emissions = 0
 
     for (let i = 0; i < layers; i++) {
-      const left: ReactiveDerivation<number> = R.derive(leaf, value => value + 1)
-      const right: ReactiveDerivation<number> = R.derive(leaf, value => value + 2)
-      const join: ReactiveDerivation<number> = R.deriveAll([left, right], ([a, b]) => a + b)
+      const left: ReactiveDerivation<number> = R.derive(
+        leaf,
+        value => value + 1,
+        { priority: R.priorities.base },
+      )
+      const right: ReactiveDerivation<number> = R.derive(
+        leaf,
+        value => value + 2,
+        { priority: R.priorities.after(left) },
+      )
+      const join: ReactiveDerivation<number> = R.derive(
+        leaf,
+        () => R.read(left) + R.read(right),
+        { priority: R.priorities.after(right) },
+      )
       nodes.push(left, right, join)
       leaf = join
     }
@@ -539,7 +551,7 @@ const preactImplementation: ReactiveImplementation = {
     }
   },
 
-  diamond(layers) {
+  idiomaticDiamond(layers) {
     const slot = allocateSinkSlot()
     const root = preactSignal(0)
     let leaf: { readonly value: number } = root
@@ -818,7 +830,7 @@ const solidImplementation: ReactiveImplementation = {
     })
   },
 
-  diamond(layers) {
+  idiomaticDiamond(layers) {
     return solidCreateRoot(disposeRoot => {
       const slot = allocateSinkSlot()
       const [root, setRoot] = solidCreateSignal(0)

@@ -36,6 +36,13 @@ export class PriorityPool extends SparseArray<Pool> {
    * will be succeeded in the following way: the highest priority would take a lead
    */
   static merge(p1: PriorityPool, p2: PriorityPool) {
+    return PriorityPool.mergeAll([p1, p2])
+  }
+
+  /**
+   * Merges any number of pools in one pass.
+   */
+  static mergeAll(pools: Iterable<PriorityPool>) {
     const result = new PriorityPool()
     const priorities = new Map<_ReactiveListener, Priority>()
 
@@ -48,8 +55,9 @@ export class PriorityPool extends SparseArray<Pool> {
       }
     }
 
-    p1.forEach(collect)
-    p2.forEach(collect)
+    for (const pool of pools) {
+      pool.forEach(collect)
+    }
 
     for (const [listener, priority] of priorities) {
       result.subscribe(priority, listener)

@@ -36,6 +36,10 @@ The save command replaces benchmarks/results/baseline.json. Compare results
 only on the same machine, Node version, power profile, and with similar
 background load.
 
+The repository records the corrected idiomatic pre-optimization run in
+`BASELINE.md` and the first contract-preserving optimization pass in
+`RESULTS.md`.
+
 The duration can be tuned without editing the suite:
 
     REROI_BENCH_TIME=1000 \
@@ -58,7 +62,7 @@ reduce first/last-run bias.
 | hot | changed root write | Depth-32 chain ending in a synchronous effect |
 | fan-out | changed root write | 100 derived values, each with an effect |
 | fan-in | changed write to one rotating input | One derived sum over 100 inputs |
-| converging | changed root write | Eight repeated split/join layers ending in an effect |
+| converging | changed root write | Eight idiomatic split/join layers ending in one effect |
 | atomic | one atomic update | Eight roots feeding one sum effect |
 | atomic fan-out | one atomic update | 64 roots with 64 disjoint effects |
 | application | change one rotating cart quantity | 100 item subtotals, aggregate, tax, and effect |
@@ -77,6 +81,13 @@ reduce first/last-run bias.
   expected effect counts before performance numbers are trusted.
 - Reroi uses explicit dependencies; Preact and Solid pay for automatic
   dependency tracking. This is an intentional product-level comparison.
+- Each adapter may express the same logical workload using its library's
+  recommended graph shape. In the converging scenario, Reroi subscribes the
+  branches and join to their common trigger, orders them with priorities, and
+  has the join explicitly read the branches. Preact and Solid use their
+  idiomatic automatically tracked diamond graphs. All adapters therefore
+  produce one final effect per write without requiring identical internal
+  topology.
 - Reroi transactions provide rollback and validation, while the comparator
   atomic scenario uses batching only. The atomic result must be interpreted
   with that stronger semantic guarantee in mind.

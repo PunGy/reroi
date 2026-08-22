@@ -61,15 +61,8 @@ implementations.forEach(implementation => {
       check(() => implementation.fanIn(4), 11, 1)
     })
 
-    it("reaches the correct converging-graph result", () => {
-      const scenario = implementation.diamond(3)
-      try {
-        scenario.step()
-        expect(scenario.value()).toBe(29)
-        expect(scenario.emissions()).toBeGreaterThanOrEqual(1)
-      } finally {
-        scenario.dispose()
-      }
+    it("updates an idiomatic converging graph once", () => {
+      check(() => implementation.idiomaticDiamond(3), 29, 1)
     })
 
     it("updates a sum atomically", () => {

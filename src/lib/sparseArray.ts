@@ -6,7 +6,7 @@ interface Node<V> {
 }
 
 export class SparseArray<V> {
-  private nodeMap = new Map<number, Node<V>>()
+  private nodeMap: Map<number, Node<V>> | undefined
   private tail: Node<V> | undefined
   private head: Node<V> | undefined
 
@@ -57,8 +57,9 @@ export class SparseArray<V> {
   }
 
   delete(index: number) {
-    const node = this.nodeMap.get(index)
-    if (node) {
+    const nodeMap = this.nodeMap
+    const node = nodeMap?.get(index)
+    if (node && nodeMap) {
       if (node.previous) {
         node.previous.next = node.next
       } else {
@@ -69,30 +70,34 @@ export class SparseArray<V> {
       } else {
         this.head = node.previous
       }
-      this.nodeMap.delete(index)
+      nodeMap.delete(index)
+      if (nodeMap.size === 0) {
+        this.nodeMap = undefined
+      }
       node.previous = undefined
       node.next = undefined
     }
   }
   get(index: number) {
-    return this.nodeMap.get(index)?.value
+    return this.nodeMap?.get(index)?.value
   }
   push(value: V, indexOverride?: number): V {
     const index = indexOverride ?? (this.head ? this.head.index + 1 : 0)
-    const existing = this.nodeMap.get(index)
+    const existing = this.nodeMap?.get(index)
     if (existing) {
       existing.value = value
       return existing.value
     }
 
     if (this.head === undefined) {
+      const nodeMap = this.nodeMap ??= new Map()
       const node = {
         value,
         previous: undefined,
         next: undefined,
         index,
       }
-      this.nodeMap.set(index, node)
+      nodeMap.set(index, node)
       this.head = this.tail = node
       return node.value
     }
@@ -123,13 +128,14 @@ export class SparseArray<V> {
     }
 
 
-    this.nodeMap.set(index, node)
+    const nodeMap = this.nodeMap ??= new Map()
+    nodeMap.set(index, node)
 
     return node.value
   }
 
   clear() {
     this.tail = this.head = undefined
-    this.nodeMap.clear()
+    this.nodeMap = undefined
   }
 }

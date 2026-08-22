@@ -1,6 +1,7 @@
 import { describe, test, it, expect, vi } from "vitest"
 import * as R from "./index"
 import type { Reactive, ReactiveValue } from "./index"
+import type { _ReactiveListener, _ReactiveValue } from "./type"
 
 const sumList = <T extends string | number>(list: Array<T>): T => (
   // @ts-expect-error i'm okay with runtime error on incorrect use in tests
@@ -197,6 +198,22 @@ describe("reroi", () => {
       stop()
 
       expect(((_x_ as unknown as { dependencies: { get(priority: number): unknown } }).dependencies).get(42)).toBeUndefined()
+    })
+
+    it("notifies a very wide priority bucket without an argument-spread limit", () => {
+      const width = 150_000
+      const _x_ = R.val(0) as unknown as _ReactiveValue<number>
+      let calls = 0
+      const onMessage: _ReactiveListener["_onMessage"] = () => {
+        calls++
+      }
+
+      for (let i = 0; i < width; i++) {
+        _x_.dependencies.subscribe(0, { _onMessage: onMessage })
+      }
+
+      expect(() => R.write(_x_, 1)).not.toThrow()
+      expect(calls).toBe(width)
     })
   })
 

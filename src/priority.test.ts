@@ -22,6 +22,26 @@ describe("PriorityPool", () => {
     expect([...merged.get(0)!]).toEqual([a, b, c])
   })
 
+  it("merges many pools in one pass", () => {
+    const a = listener()
+    const b = listener()
+    const shared = listener()
+    const p1 = new PriorityPool()
+    const p2 = new PriorityPool()
+    const p3 = new PriorityPool()
+
+    p1.subscribe(0, a)
+    p1.subscribe(-1, shared)
+    p2.subscribe(0, b)
+    p3.subscribe(2, shared)
+
+    const merged = PriorityPool.mergeAll([p1, p2, p3])
+
+    expect([...merged.get(0)!]).toEqual([a, b])
+    expect(merged.get(-1)).toBeUndefined()
+    expect(merged.get(2)).toEqual(new Set([shared]))
+  })
+
   it("owns merged buckets instead of aliasing source buckets", () => {
     const a = listener()
     const b = listener()
